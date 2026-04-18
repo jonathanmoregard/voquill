@@ -1272,6 +1272,47 @@ pub async fn set_pill_pitch_color(app: AppHandle, color: String) -> Result<(), S
 
 #[tauri::command]
 #[specta::specta]
+pub async fn calibrate_pitch(
+    recorder: State<'_, Arc<dyn crate::platform::Recorder>>,
+    duration_ms: u64,
+) -> Result<f32, String> {
+    let samples = Arc::new(std::sync::Mutex::new(Vec::<f32>::new()));
+    let samples_clone = Arc::clone(&samples);
+    let pitch_emitter: PitchCallback = Arc::new(move |hz: f32| {
+        if hz > 0.0 {
+            if let Ok(mut vec) = samples_clone.lock() {
+                vec.push(hz);
+            }
+        }
+    });
+
+    let recorder_start = Arc::clone(&recorder);
+    tauri::async_runtime::spawn_blocking(move || {
+        recorder_start
+            .start(None, None, Some(pitch_emitter))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Calibration start task panicked: {e}"))??;
+
+    tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
+
+    let recorder_stop = Arc::clone(&recorder);
+    tauri::async_runtime::spawn_blocking(move || recorder_stop.stop().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("Calibration stop task panicked: {e}"))??;
+
+    let mut collected = samples.lock().map(|v| v.clone()).unwrap_or_default();
+    if collected.is_empty() {
+        return Err("No pitch samples detected. Speak during calibration.".to_string());
+    }
+    collected.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = collected[collected.len() / 2];
+    Ok(median)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn stop_recording(
     _app: AppHandle,
     recorder: State<'_, Arc<dyn crate::platform::Recorder>>,

@@ -1,6 +1,7 @@
 import {
   ChatBubbleOutline,
   ClassOutlined,
+  GraphicEqOutlined,
   HelpOutline,
   HistoryOutlined,
   HomeOutlined,
@@ -67,6 +68,11 @@ export const DashboardMenu = ({ onChoose }: DashboardMenuProps) => {
         label: <FormattedMessage defaultMessage="Styles" />,
         path: "/dashboard/styling",
         icon: <PaletteOutlined />,
+      },
+      {
+        label: <FormattedMessage defaultMessage="Pitch check" />,
+        path: "/dashboard/pitch",
+        icon: <GraphicEqOutlined />,
       },
       ...(assistantModeEnabled
         ? [
