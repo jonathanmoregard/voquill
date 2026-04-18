@@ -27,8 +27,8 @@ pub use paired_remote_device::PairedRemoteDevice;
 pub use permissions::{PermissionKind, PermissionState, PermissionStatus};
 pub use preferences::UserPreferences;
 pub use recording::{
-    AudioChunkPayload, RecordedAudio, RecordingLevelPayload, RecordingMetrics, RecordingResult,
-    EVT_AUDIO_CHUNK, EVT_REC_LEVEL,
+    AudioChunkPayload, RecordedAudio, RecordingLevelPayload, RecordingMetrics, RecordingPitchPayload,
+    RecordingResult, EVT_AUDIO_CHUNK, EVT_REC_LEVEL, EVT_REC_PITCH,
 };
 pub use term::Term;
 pub use tone::Tone;

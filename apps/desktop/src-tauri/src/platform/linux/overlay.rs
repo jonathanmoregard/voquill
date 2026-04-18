@@ -27,6 +27,10 @@ pub fn notify_audio_levels(app: &tauri::AppHandle, levels: &[f32]) {
     pill_process::notify_audio_levels(app, levels);
 }
 
+pub fn notify_pitch_color(app: &tauri::AppHandle, color: &str) {
+    pill_process::notify_pitch_color(app, color);
+}
+
 pub fn notify_visibility(app: &tauri::AppHandle, visibility: &str) {
     pill_process::notify_visibility(app, visibility);
 }

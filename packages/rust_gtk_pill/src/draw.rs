@@ -102,6 +102,22 @@ fn draw_pill(cr: &cairo::Context, state: &PillState, ww: f64, wh: f64) {
     cr.set_line_width(1.0);
     let _ = cr.stroke();
 
+    if state.phase.get() == Phase::Recording {
+        use crate::ipc::PitchColor;
+        let pc = state.pitch_color.get();
+        if pc != PitchColor::Neutral {
+            let (r, g, b) = match pc {
+                PitchColor::Green => (0.30, 0.69, 0.31),
+                PitchColor::Red => (0.96, 0.26, 0.21),
+                PitchColor::Neutral => (1.0, 1.0, 1.0),
+            };
+            rounded_rect(cr, rx + 0.5, ry + 0.5, pill_w - 1.0, pill_h - 1.0, radius - 0.5);
+            cr.set_source_rgba(r, g, b, (0.85 * expand_t).max(0.4));
+            cr.set_line_width(2.0);
+            let _ = cr.stroke();
+        }
+    }
+
     match state.phase.get() {
         Phase::Recording if expand_t > 0.1 => {
             draw_waveform(cr, rx, ry, pill_w, pill_h, expand_t, state);

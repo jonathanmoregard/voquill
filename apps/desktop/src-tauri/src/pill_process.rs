@@ -112,6 +112,12 @@ pub fn notify_audio_levels(app: &tauri::AppHandle, levels: &[f32]) {
     }
 }
 
+pub fn notify_pitch_color(app: &tauri::AppHandle, color: &str) {
+    if let Some(pill) = app.try_state::<std::sync::Arc<PillProcess>>() {
+        pill.send(&format!(r#"{{"type":"pitch_color","color":"{color}"}}"#));
+    }
+}
+
 pub fn notify_visibility(app: &tauri::AppHandle, visibility: &str) {
     if let Some(pill) = app.try_state::<std::sync::Arc<PillProcess>>() {
         pill.send(&format!(
