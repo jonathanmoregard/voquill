@@ -38,6 +38,8 @@ export type UserPreferences = {
   dictationAudioDim: number;
   pasteKeybind: Nullable<string>;
   menuBarIconHidden: boolean;
+  pitchFeedbackEnabled: boolean;
+  pitchThresholdHz: number;
 
   // deprecated
   isEnterprise: boolean;

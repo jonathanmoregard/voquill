@@ -7,6 +7,7 @@ import { HeaderPortalProvider } from "./HeaderPortalContext";
 import { LoadingApp } from "./LoadingApp";
 import { OverlaySyncSideEffects } from "./OverlaySyncSideEffects";
 import { PermissionSideEffects } from "./PermissionSideEffects";
+import { PitchFeedbackSideEffects } from "./PitchFeedbackSideEffects";
 import { RootConfetti } from "./RootConfetti";
 import { RootDialogs } from "./RootDialogs";
 import { RootSideEffects } from "./RootSideEffects";
@@ -34,6 +35,7 @@ export default function Root() {
       <RootConfetti />
       <RootSideEffects />
       <OverlaySyncSideEffects />
+      <PitchFeedbackSideEffects />
       <RootDialogs />
       <HeaderPortalProvider>
         <ErrorBoundary FallbackComponent={ErrorFallback}>

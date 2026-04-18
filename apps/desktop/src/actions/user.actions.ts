@@ -115,6 +115,8 @@ export const createDefaultPreferences = (): UserPreferences => ({
   dictationAudioDim: 1.0,
   pasteKeybind: null,
   menuBarIconHidden: false,
+  pitchFeedbackEnabled: false,
+  pitchThresholdHz: 155,
 });
 
 export const updateUserPreferences = async (
@@ -711,6 +713,21 @@ export const setMenuBarIconHidden = async (hidden: boolean): Promise<void> => {
   await updateUserPreferences((preferences) => {
     preferences.menuBarIconHidden = hidden;
   }, "Failed to save menu bar icon preference. Please try again.");
+};
+
+export const setPitchFeedbackEnabled = async (
+  enabled: boolean,
+): Promise<void> => {
+  await updateUserPreferences((preferences) => {
+    preferences.pitchFeedbackEnabled = enabled;
+  }, "Failed to save pitch feedback preference. Please try again.");
+};
+
+export const setPitchThresholdHz = async (hz: number): Promise<void> => {
+  const clamped = Math.max(50, Math.min(400, Math.round(hz)));
+  await updateUserPreferences((preferences) => {
+    preferences.pitchThresholdHz = clamped;
+  }, "Failed to save pitch threshold. Please try again.");
 };
 
 export const setDictationAudioDim = async (value: number): Promise<void> => {

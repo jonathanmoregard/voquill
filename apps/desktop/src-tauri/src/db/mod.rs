@@ -125,6 +125,8 @@ pub const DICTATION_LIMIT_MINUTES_MIGRATION_SQL: &str =
     include_str!("migrations/065_dictation_limit_minutes.sql");
 pub const MENU_BAR_ICON_HIDDEN_MIGRATION_SQL: &str =
     include_str!("migrations/066_menu_bar_icon_hidden.sql");
+pub const PITCH_FEEDBACK_MIGRATION_SQL: &str =
+    include_str!("migrations/067_pitch_feedback.sql");
 
 pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
     vec![
@@ -522,6 +524,12 @@ pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
             version: 66,
             description: "add_menu_bar_icon_hidden",
             sql: MENU_BAR_ICON_HIDDEN_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 67,
+            description: "add_pitch_feedback",
+            sql: PITCH_FEEDBACK_MIGRATION_SQL,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
     ]

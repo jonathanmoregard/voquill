@@ -59,9 +59,11 @@ pub async fn upsert_user_preferences(
              remote_receiver_port,
              remote_receiver_auto_start,
              dictation_audio_dim,
-             menu_bar_icon_hidden
+             menu_bar_icon_hidden,
+             pitch_feedback_enabled,
+             pitch_threshold_hz
          )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)
          ON CONFLICT(user_id) DO UPDATE SET
             transcription_mode = excluded.transcription_mode,
             transcription_api_key_id = excluded.transcription_api_key_id,
@@ -98,7 +100,9 @@ pub async fn upsert_user_preferences(
             remote_receiver_port = excluded.remote_receiver_port,
             remote_receiver_auto_start = excluded.remote_receiver_auto_start,
             dictation_audio_dim = excluded.dictation_audio_dim,
-            menu_bar_icon_hidden = excluded.menu_bar_icon_hidden",
+            menu_bar_icon_hidden = excluded.menu_bar_icon_hidden,
+            pitch_feedback_enabled = excluded.pitch_feedback_enabled,
+            pitch_threshold_hz = excluded.pitch_threshold_hz",
     )
     .bind(&preferences.user_id)
     .bind(&preferences.transcription_mode)
@@ -137,6 +141,8 @@ pub async fn upsert_user_preferences(
     .bind(preferences.remote_receiver_auto_start)
     .bind(preferences.dictation_audio_dim)
     .bind(preferences.menu_bar_icon_hidden)
+    .bind(preferences.pitch_feedback_enabled)
+    .bind(preferences.pitch_threshold_hz)
     .execute(&pool)
     .await?;
 
@@ -185,7 +191,9 @@ pub async fn fetch_user_preferences(
             remote_receiver_port,
             remote_receiver_auto_start,
             dictation_audio_dim,
-            menu_bar_icon_hidden
+            menu_bar_icon_hidden,
+            pitch_feedback_enabled,
+            pitch_threshold_hz
          FROM user_preferences
          WHERE user_id = ?1
          LIMIT 1",
@@ -316,6 +324,13 @@ pub async fn fetch_user_preferences(
             .try_get::<i64, _>("menu_bar_icon_hidden")
             .map(|v| v != 0)
             .unwrap_or(false),
+        pitch_feedback_enabled: row
+            .try_get::<i64, _>("pitch_feedback_enabled")
+            .map(|v| v != 0)
+            .unwrap_or(false),
+        pitch_threshold_hz: row
+            .try_get::<f64, _>("pitch_threshold_hz")
+            .unwrap_or(155.0),
     });
 
     Ok(preferences)

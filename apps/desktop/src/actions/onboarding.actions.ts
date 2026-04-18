@@ -198,6 +198,8 @@ export const submitOnboarding = async () => {
       dictationAudioDim: 1.0,
       pasteKeybind: null,
       menuBarIconHidden: false,
+      pitchFeedbackEnabled: false,
+      pitchThresholdHz: 155,
     };
 
     const [savedUser, savedPreferences] = await Promise.all([

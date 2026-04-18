@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_DICTATION_LIMIT_MINUTES: i64 = 5;
+pub const DEFAULT_PITCH_THRESHOLD_HZ: f64 = 155.0;
 
 #[derive(Clone, Debug, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +79,10 @@ pub struct UserPreferences {
     pub dictation_audio_dim: f64,
     #[serde(default)]
     pub menu_bar_icon_hidden: bool,
+    #[serde(default)]
+    pub pitch_feedback_enabled: bool,
+    #[serde(default = "default_pitch_threshold_hz")]
+    pub pitch_threshold_hz: f64,
 }
 
 fn default_dictation_pill_visibility() -> String {
@@ -90,4 +95,8 @@ fn default_dictation_limit_minutes() -> i64 {
 
 fn default_dictation_audio_dim() -> f64 {
     1.0
+}
+
+fn default_pitch_threshold_hz() -> f64 {
+    DEFAULT_PITCH_THRESHOLD_HZ
 }
