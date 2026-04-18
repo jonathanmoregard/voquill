@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 
-use crate::ipc::{Phase, PillMessage, PillPermission, PillStreaming, Visibility};
+use crate::ipc::{Phase, PillMessage, PillPermission, PillStreaming, PitchColor, Visibility};
 
 use crate::constants::*;
 
@@ -105,6 +105,7 @@ impl WindowMode {
 
 pub(crate) struct PillState {
     pub(crate) phase: Cell<Phase>,
+    pub(crate) pitch_color: Cell<PitchColor>,
     pub(crate) visibility: Cell<Visibility>,
     pub(crate) expand_t: Cell<f64>,
     pub(crate) expand_velocity: Cell<f64>,

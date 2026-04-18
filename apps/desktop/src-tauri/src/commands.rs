@@ -6,10 +6,10 @@ use tauri::{AppHandle, Emitter, EventTarget, Manager, State};
 
 use crate::domain::{
     ApiKey, ApiKeyCreateRequest, ApiKeyView, AudioChunkPayload, OverlayPhase, OverlayPhasePayload,
-    RecordingLevelPayload, TranscriptionAudioSnapshot, EVT_AUDIO_CHUNK, EVT_OVERLAY_PHASE,
-    EVT_REC_LEVEL,
+    RecordingLevelPayload, RecordingPitchPayload, TranscriptionAudioSnapshot, EVT_AUDIO_CHUNK,
+    EVT_OVERLAY_PHASE, EVT_REC_LEVEL, EVT_REC_PITCH,
 };
-use crate::platform::{ChunkCallback, LevelCallback};
+use crate::platform::{ChunkCallback, LevelCallback, PitchCallback};
 use crate::system::crypto::{protect_api_key, reveal_api_key};
 use crate::system::StorageRepo;
 use crate::utils::decode_to_utf8;
@@ -1218,9 +1218,17 @@ pub async fn start_recording(
         }
     });
 
+    let pitch_emit_handle = app.clone();
+    let pitch_emitter: PitchCallback = Arc::new(move |hz: f32| {
+        let payload = RecordingPitchPayload { hz };
+        if let Err(err) = pitch_emit_handle.emit_to(EventTarget::any(), EVT_REC_PITCH, payload) {
+            log::error!("Failed to emit recording_pitch event: {err}");
+        }
+    });
+
     let recorder_clone = Arc::clone(&recorder);
     let start_result = tauri::async_runtime::spawn_blocking(move || {
-        match recorder_clone.start(Some(level_emitter), Some(chunk_emitter)) {
+        match recorder_clone.start(Some(level_emitter), Some(chunk_emitter), Some(pitch_emitter)) {
             Ok(()) => Ok(()),
             Err(err) => {
                 let already_recording = (*err)
@@ -1253,6 +1261,13 @@ pub async fn start_recording(
             Err(message)
         }
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_pill_pitch_color(app: AppHandle, color: String) -> Result<(), String> {
+    crate::platform::overlay::notify_pitch_color(&app, &color);
+    Ok(())
 }
 
 #[tauri::command]

@@ -178,12 +178,14 @@ impl SavedClipboard {
 
 pub type LevelCallback = Arc<dyn Fn(Vec<f32>) + Send + Sync>;
 pub type ChunkCallback = Arc<dyn Fn(Vec<f32>) + Send + Sync>;
+pub type PitchCallback = Arc<dyn Fn(f32) + Send + Sync>;
 
 pub trait Recorder: Send + Sync {
     fn start(
         &self,
         level_callback: Option<LevelCallback>,
         chunk_callback: Option<ChunkCallback>,
+        pitch_callback: Option<PitchCallback>,
     ) -> Result<(), Box<dyn std::error::Error>>;
     fn stop(&self) -> Result<crate::domain::RecordingResult, Box<dyn std::error::Error>>;
     fn set_preferred_input_device(&self, _name: Option<String>) {}

@@ -101,6 +101,7 @@ pub fn run(receiver: Receiver<InMessage>) {
 
     let state = Rc::new(PillState {
         phase: Cell::new(Phase::Idle),
+        pitch_color: Cell::new(crate::ipc::PitchColor::Neutral),
         visibility: Cell::new(Visibility::WhileActive),
         expand_t: Cell::new(0.0),
         expand_velocity: Cell::new(0.0),
@@ -336,6 +337,9 @@ pub fn run(receiver: Receiver<InMessage>) {
                 }
                 InMessage::Levels { levels } => {
                     *state_tick.pending_levels.borrow_mut() = levels;
+                }
+                InMessage::PitchColor { color } => {
+                    state_tick.pitch_color.set(color);
                 }
                 InMessage::StyleInfo { count, name } => {
                     state_tick.style_count.set(count);

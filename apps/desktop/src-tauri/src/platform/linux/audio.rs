@@ -1,7 +1,9 @@
 use crate::domain::{RecordedAudio, RecordingMetrics, RecordingResult};
 use crate::errors::RecordingError;
 use crate::platform::audio::InputDeviceDescriptor;
-use crate::platform::{ChunkCallback, LevelCallback, Recorder};
+use crate::platform::{ChunkCallback, LevelCallback, PitchCallback, Recorder};
+use pitch_detection::detector::mcleod::McLeodDetector;
+use pitch_detection::detector::PitchDetector;
 use std::cmp;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,6 +16,13 @@ const FALLBACK_SAMPLE_RATE: u32 = 44_100;
 const LEVEL_BIN_COUNT: usize = 12;
 const LEVEL_DISPATCH_INTERVAL: Duration = Duration::from_millis(48);
 const CHUNK_DISPATCH_INTERVAL: Duration = Duration::from_millis(100);
+const PITCH_DISPATCH_INTERVAL: Duration = Duration::from_millis(48);
+const PITCH_WINDOW_SAMPLES: usize = 2048;
+const PITCH_PADDING: usize = 1024;
+const PITCH_POWER_THRESHOLD: f32 = 2.0;
+const PITCH_CLARITY_THRESHOLD: f32 = 0.7;
+const PITCH_MIN_HZ: f32 = 70.0;
+const PITCH_MAX_HZ: f32 = 400.0;
 const READ_CHUNK_FRAMES: usize = 1024;
 
 pub struct PulseRecorder {
@@ -50,6 +59,7 @@ impl Recorder for PulseRecorder {
         &self,
         level_callback: Option<LevelCallback>,
         chunk_callback: Option<ChunkCallback>,
+        pitch_callback: Option<PitchCallback>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut guard = self
             .inner
@@ -92,6 +102,7 @@ impl Recorder for PulseRecorder {
                     stop_signal_clone,
                     level_callback,
                     chunk_callback,
+                    pitch_callback,
                 )
             })
             .map_err(|err| RecordingError::StreamBuild(err.to_string()))?;
@@ -199,6 +210,7 @@ fn record_loop(
     stop_signal: Arc<Mutex<bool>>,
     level_callback: Option<LevelCallback>,
     chunk_callback: Option<ChunkCallback>,
+    pitch_callback: Option<PitchCallback>,
 ) -> RecordingResult {
     let spec = pulse::sample::Spec {
         format: pulse::sample::Format::F32le,
@@ -246,7 +258,11 @@ fn record_loop(
     let mut all_samples: Vec<f32> = Vec::new();
     let mut last_level_emit = Instant::now();
     let mut last_chunk_emit = Instant::now();
+    let mut last_pitch_emit = Instant::now();
     let mut chunk_buffer: Vec<f32> = Vec::new();
+    let mut pitch_detector: Option<McLeodDetector<f32>> = pitch_callback
+        .as_ref()
+        .map(|_| McLeodDetector::new(PITCH_WINDOW_SAMPLES, PITCH_PADDING));
 
     let mut read_buf = vec![0u8; READ_CHUNK_FRAMES * std::mem::size_of::<f32>()];
 
@@ -293,6 +309,33 @@ fn record_loop(
                     cb(chunk_buffer.clone());
                     chunk_buffer.clear();
                 }
+            }
+        }
+
+        // Emit pitch from rolling window
+        if let (Some(ref cb), Some(ref mut detector)) =
+            (pitch_callback.as_ref(), pitch_detector.as_mut())
+        {
+            let now = Instant::now();
+            if now.duration_since(last_pitch_emit) >= PITCH_DISPATCH_INTERVAL
+                && all_samples.len() >= PITCH_WINDOW_SAMPLES
+            {
+                last_pitch_emit = now;
+                let start_idx = all_samples.len() - PITCH_WINDOW_SAMPLES;
+                let window = &all_samples[start_idx..];
+                let pitch = detector.get_pitch(
+                    window,
+                    sample_rate as usize,
+                    PITCH_POWER_THRESHOLD,
+                    PITCH_CLARITY_THRESHOLD,
+                );
+                let hz = match pitch {
+                    Some(p) if p.frequency >= PITCH_MIN_HZ && p.frequency <= PITCH_MAX_HZ => {
+                        p.frequency
+                    }
+                    _ => 0.0,
+                };
+                cb(hz);
             }
         }
     }

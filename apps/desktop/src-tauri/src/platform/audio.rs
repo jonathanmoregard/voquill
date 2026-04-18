@@ -39,7 +39,7 @@ mod cpal_impl {
     use super::InputDeviceDescriptor;
     use crate::domain::{RecordedAudio, RecordingMetrics, RecordingResult};
     use crate::errors::RecordingError;
-    use crate::platform::{ChunkCallback, LevelCallback, Recorder};
+    use crate::platform::{ChunkCallback, LevelCallback, PitchCallback, Recorder};
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{Device, HostId, SampleFormat, Stream, StreamConfig};
     use std::cmp;
@@ -406,6 +406,7 @@ mod cpal_impl {
             &self,
             level_callback: Option<LevelCallback>,
             chunk_callback: Option<ChunkCallback>,
+            _pitch_callback: Option<PitchCallback>,
         ) -> Result<(), Box<dyn std::error::Error>> {
             self.start_recording(level_callback, chunk_callback)
                 .map_err(|err| Box::new(err) as _)

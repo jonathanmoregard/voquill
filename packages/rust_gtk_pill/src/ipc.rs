@@ -19,6 +19,15 @@ pub enum Phase {
     Loading,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PitchColor {
+    #[default]
+    Neutral,
+    Green,
+    Red,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PillMessage {
     pub id: String,
@@ -59,6 +68,7 @@ pub struct PillPermission {
 pub enum InMessage {
     Phase { phase: Phase },
     Levels { levels: Vec<f32> },
+    PitchColor { color: PitchColor },
     StyleInfo { count: u32, name: String },
     Visibility { visibility: Visibility },
     WindowSize { size: String },

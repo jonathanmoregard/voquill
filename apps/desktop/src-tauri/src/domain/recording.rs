@@ -3,6 +3,7 @@ use std::time::Duration;
 
 pub const EVT_REC_LEVEL: &str = "recording_level";
 pub const EVT_AUDIO_CHUNK: &str = "audio_chunk";
+pub const EVT_REC_PITCH: &str = "recording_pitch";
 
 #[derive(Clone, Debug)]
 pub struct RecordingMetrics {
@@ -30,4 +31,9 @@ pub struct RecordingLevelPayload {
 #[derive(Clone, Serialize)]
 pub struct AudioChunkPayload {
     pub samples: Vec<f32>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct RecordingPitchPayload {
+    pub hz: f32,
 }

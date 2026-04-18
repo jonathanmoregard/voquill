@@ -237,6 +237,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::commands::remote_sender_pair_with_receiver,
             crate::commands::start_recording,
             crate::commands::stop_recording,
+            crate::commands::set_pill_pitch_color,
             crate::commands::store_transcription_audio,
             crate::commands::storage_upload_data,
             crate::commands::storage_get_download_url,
