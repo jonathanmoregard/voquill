@@ -84,6 +84,10 @@ export type ReplacementRule = {
 const SYMBOL_CONVERSIONS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bhashtag[,;:.!?]?\s+(\w)/gi, replacement: "#$1" },
   { pattern: /\bpound\s*sign[,;:.!?]?\s+(\w)/gi, replacement: "#$1" },
+  { pattern: /\bslash[,;:.!?]?\s+(\w)/gi, replacement: "/$1" },
+  { pattern: /\bforward\s*slash[,;:.!?]?\s+(\w)/gi, replacement: "/$1" },
+  { pattern: /\bbackslash[,;:.!?]?\s+(\w)/gi, replacement: "\\$1" },
+  { pattern: /\bat\s*sign[,;:.!?]?\s+(\w)/gi, replacement: "@$1" },
 ];
 
 export const applySymbolConversions = (text: string): string => {
