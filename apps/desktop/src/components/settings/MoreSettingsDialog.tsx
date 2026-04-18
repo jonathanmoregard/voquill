@@ -21,6 +21,8 @@ import {
   setIncognitoModeEnabled,
   setIncognitoModeIncludeInStats,
   setMenuBarIconHidden,
+  setPitchFeedbackEnabled,
+  setPitchThresholdHz,
   setRealtimeOutputEnabled,
   setStylingMode,
 } from "../../actions/user.actions";
@@ -63,6 +65,8 @@ export const MoreSettingsDialog = () => {
     isCloudUser,
     menuBarIconHidden,
     optInToBetaUpdates,
+    pitchFeedbackEnabled,
+    pitchThresholdHz,
   ] = useAppStore((state) => {
     const prefs = getMyUserPreferences(state);
     const transcriptionPrefs = getTranscriptionPrefs(state);
@@ -83,8 +87,37 @@ export const MoreSettingsDialog = () => {
       getIsVoquillCloudUser(state),
       prefs?.menuBarIconHidden ?? false,
       state.local.optInToBetaUpdates,
+      prefs?.pitchFeedbackEnabled ?? false,
+      prefs?.pitchThresholdHz ?? 155,
     ] as const;
   });
+
+  const [pitchThresholdInput, setPitchThresholdInput] = useState(
+    String(pitchThresholdHz),
+  );
+  const lastCommittedPitchThresholdRef = useRef(pitchThresholdHz);
+
+  useEffect(() => {
+    lastCommittedPitchThresholdRef.current = pitchThresholdHz;
+    setPitchThresholdInput(String(pitchThresholdHz));
+  }, [pitchThresholdHz]);
+
+  const commitPitchThreshold = () => {
+    if (pitchThresholdInput === "") {
+      setPitchThresholdInput(String(pitchThresholdHz));
+      return;
+    }
+    const parsed = Number(pitchThresholdInput);
+    if (!Number.isFinite(parsed)) {
+      setPitchThresholdInput(String(pitchThresholdHz));
+      return;
+    }
+    const normalized = Math.max(50, Math.min(400, Math.round(parsed)));
+    setPitchThresholdInput(String(normalized));
+    if (normalized === lastCommittedPitchThresholdRef.current) return;
+    lastCommittedPitchThresholdRef.current = normalized;
+    void setPitchThresholdHz(normalized);
+  };
   const [dictationLimitInput, setDictationLimitInput] = useState(
     String(dictationLimitMinutes),
   );
@@ -297,6 +330,49 @@ export const MoreSettingsDialog = () => {
               />
             }
           />
+
+          <SettingSection
+            title={<FormattedMessage defaultMessage="Pitch feedback" />}
+            description={
+              <FormattedMessage defaultMessage="Color the recording pill green when your pitch is below the threshold and red when above. Useful for speaking in a lower register." />
+            }
+            action={
+              <Switch
+                edge="end"
+                checked={pitchFeedbackEnabled}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  void setPitchFeedbackEnabled(event.target.checked)
+                }
+              />
+            }
+          />
+
+          {pitchFeedbackEnabled && (
+            <SettingSection
+              title={
+                <FormattedMessage defaultMessage="Pitch threshold (Hz)" />
+              }
+              description={
+                <FormattedMessage defaultMessage="Below this pitch the pill is green, above it red. Typical male low is 100–140 Hz, neutral 150–200 Hz." />
+              }
+              action={
+                <TextField
+                  size="small"
+                  type="number"
+                  value={pitchThresholdInput}
+                  onChange={(event) => setPitchThresholdInput(event.target.value)}
+                  onBlur={commitPitchThreshold}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  inputProps={{ min: 50, max: 400, step: 1 }}
+                  sx={{ width: 110 }}
+                />
+              }
+            />
+          )}
 
           <SettingSection
             title={
