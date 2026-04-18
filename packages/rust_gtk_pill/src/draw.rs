@@ -134,13 +134,13 @@ fn draw_waveform(
     rounded_rect(cr, rx, ry, pill_w, pill_h, pill_h / 2.0);
     cr.clip();
 
-    use crate::ipc::PitchColor;
-    let pc = state.pitch_color.get();
-    let (wave_r, wave_g, wave_b, wave_stroke) = match pc {
-        PitchColor::Green => (0.30, 0.85, 0.35, STROKE_WIDTH * 2.0),
-        PitchColor::Red => (0.96, 0.26, 0.21, STROKE_WIDTH),
-        PitchColor::Neutral => (1.0, 1.0, 1.0, STROKE_WIDTH),
-    };
+    let t = state.pitch_blend.get().clamp(0.0, 1.0) as f64;
+    let (gr, gg, gb) = (0.30, 0.85, 0.35);
+    let (rr, rg, rb) = (0.96, 0.26, 0.21);
+    let wave_r = gr + (rr - gr) * t;
+    let wave_g = gg + (rg - gg) * t;
+    let wave_b = gb + (rb - gb) * t;
+    let wave_stroke = STROKE_WIDTH * (2.0 - t);
 
     for config in WAVE_CONFIGS {
         let amplitude_factor = (level * config.multiplier).clamp(MIN_AMPLITUDE, MAX_AMPLITUDE);

@@ -113,8 +113,17 @@ pub fn notify_audio_levels(app: &tauri::AppHandle, levels: &[f32]) {
 }
 
 pub fn notify_pitch_color(app: &tauri::AppHandle, color: &str) {
+    log::info!("notify_pitch_color: {color}");
     if let Some(pill) = app.try_state::<std::sync::Arc<PillProcess>>() {
         pill.send(&format!(r#"{{"type":"pitch_color","color":"{color}"}}"#));
+    } else {
+        log::warn!("notify_pitch_color: pill process not available");
+    }
+}
+
+pub fn notify_pitch_blend(app: &tauri::AppHandle, t: f32) {
+    if let Some(pill) = app.try_state::<std::sync::Arc<PillProcess>>() {
+        pill.send(&format!(r#"{{"type":"pitch_blend","t":{t}}}"#));
     }
 }
 

@@ -117,6 +117,7 @@ export const createDefaultPreferences = (): UserPreferences => ({
   menuBarIconHidden: false,
   pitchFeedbackEnabled: false,
   pitchThresholdHz: 155,
+  pitchTransitionWindowHz: 2,
 });
 
 export const updateUserPreferences = async (
@@ -728,6 +729,13 @@ export const setPitchThresholdHz = async (hz: number): Promise<void> => {
   await updateUserPreferences((preferences) => {
     preferences.pitchThresholdHz = clamped;
   }, "Failed to save pitch threshold. Please try again.");
+};
+
+export const setPitchTransitionWindowHz = async (hz: number): Promise<void> => {
+  const clamped = Math.max(0, Math.min(200, hz));
+  await updateUserPreferences((preferences) => {
+    preferences.pitchTransitionWindowHz = clamped;
+  }, "Failed to save pitch transition window. Please try again.");
 };
 
 export const setDictationAudioDim = async (value: number): Promise<void> => {

@@ -19,8 +19,8 @@ const CHUNK_DISPATCH_INTERVAL: Duration = Duration::from_millis(100);
 const PITCH_DISPATCH_INTERVAL: Duration = Duration::from_millis(48);
 const PITCH_WINDOW_SAMPLES: usize = 2048;
 const PITCH_PADDING: usize = 1024;
-const PITCH_POWER_THRESHOLD: f32 = 2.0;
-const PITCH_CLARITY_THRESHOLD: f32 = 0.7;
+const PITCH_POWER_THRESHOLD: f32 = 0.05;
+const PITCH_CLARITY_THRESHOLD: f32 = 0.5;
 const PITCH_MIN_HZ: f32 = 70.0;
 const PITCH_MAX_HZ: f32 = 400.0;
 const READ_CHUNK_FRAMES: usize = 1024;
@@ -333,7 +333,14 @@ fn record_loop(
                     Some(p) if p.frequency >= PITCH_MIN_HZ && p.frequency <= PITCH_MAX_HZ => {
                         p.frequency
                     }
-                    _ => 0.0,
+                    Some(p) => {
+                        log::debug!("pitch out of range: {} Hz clarity={}", p.frequency, p.clarity);
+                        0.0
+                    }
+                    None => {
+                        log::debug!("pitch detector returned None (clarity/power below threshold)");
+                        0.0
+                    }
                 };
                 cb(hz);
             }

@@ -28,6 +28,11 @@ pub enum PitchColor {
     Red,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+pub struct PitchBlend {
+    pub t: f32,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PillMessage {
     pub id: String,
@@ -69,6 +74,7 @@ pub enum InMessage {
     Phase { phase: Phase },
     Levels { levels: Vec<f32> },
     PitchColor { color: PitchColor },
+    PitchBlend { t: f32 },
     StyleInfo { count: u32, name: String },
     Visibility { visibility: Visibility },
     WindowSize { size: String },

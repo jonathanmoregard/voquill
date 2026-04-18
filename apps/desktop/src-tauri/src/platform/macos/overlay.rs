@@ -59,6 +59,10 @@ pub fn notify_pitch_color(_app: &tauri::AppHandle, _color: &str) {
     // macOS pill uses typed IPC and does not yet support pitch color.
 }
 
+pub fn notify_pitch_blend(_app: &tauri::AppHandle, _t: f32) {
+    // macOS pill does not yet support pitch blend.
+}
+
 pub fn notify_visibility(app: &tauri::AppHandle, visibility: &str) {
     if let Some(pill) = app.try_state::<std::sync::Arc<MacosPill>>() {
         let visibility = match visibility {

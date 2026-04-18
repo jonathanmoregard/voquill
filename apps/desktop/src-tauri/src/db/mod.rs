@@ -127,6 +127,8 @@ pub const MENU_BAR_ICON_HIDDEN_MIGRATION_SQL: &str =
     include_str!("migrations/066_menu_bar_icon_hidden.sql");
 pub const PITCH_FEEDBACK_MIGRATION_SQL: &str =
     include_str!("migrations/067_pitch_feedback.sql");
+pub const PITCH_TRANSITION_WINDOW_MIGRATION_SQL: &str =
+    include_str!("migrations/068_pitch_transition_window.sql");
 
 pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
     vec![
@@ -530,6 +532,12 @@ pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
             version: 67,
             description: "add_pitch_feedback",
             sql: PITCH_FEEDBACK_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 68,
+            description: "add_pitch_transition_window",
+            sql: PITCH_TRANSITION_WINDOW_MIGRATION_SQL,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
     ]

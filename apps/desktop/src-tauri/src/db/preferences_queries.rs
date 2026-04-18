@@ -61,9 +61,10 @@ pub async fn upsert_user_preferences(
              dictation_audio_dim,
              menu_bar_icon_hidden,
              pitch_feedback_enabled,
-             pitch_threshold_hz
+             pitch_threshold_hz,
+             pitch_transition_window_hz
          )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)
          ON CONFLICT(user_id) DO UPDATE SET
             transcription_mode = excluded.transcription_mode,
             transcription_api_key_id = excluded.transcription_api_key_id,
@@ -102,7 +103,8 @@ pub async fn upsert_user_preferences(
             dictation_audio_dim = excluded.dictation_audio_dim,
             menu_bar_icon_hidden = excluded.menu_bar_icon_hidden,
             pitch_feedback_enabled = excluded.pitch_feedback_enabled,
-            pitch_threshold_hz = excluded.pitch_threshold_hz",
+            pitch_threshold_hz = excluded.pitch_threshold_hz,
+            pitch_transition_window_hz = excluded.pitch_transition_window_hz",
     )
     .bind(&preferences.user_id)
     .bind(&preferences.transcription_mode)
@@ -143,6 +145,7 @@ pub async fn upsert_user_preferences(
     .bind(preferences.menu_bar_icon_hidden)
     .bind(preferences.pitch_feedback_enabled)
     .bind(preferences.pitch_threshold_hz)
+    .bind(preferences.pitch_transition_window_hz)
     .execute(&pool)
     .await?;
 
@@ -193,7 +196,8 @@ pub async fn fetch_user_preferences(
             dictation_audio_dim,
             menu_bar_icon_hidden,
             pitch_feedback_enabled,
-            pitch_threshold_hz
+            pitch_threshold_hz,
+            pitch_transition_window_hz
          FROM user_preferences
          WHERE user_id = ?1
          LIMIT 1",
@@ -331,6 +335,9 @@ pub async fn fetch_user_preferences(
         pitch_threshold_hz: row
             .try_get::<f64, _>("pitch_threshold_hz")
             .unwrap_or(155.0),
+        pitch_transition_window_hz: row
+            .try_get::<f64, _>("pitch_transition_window_hz")
+            .unwrap_or(2.0),
     });
 
     Ok(preferences)

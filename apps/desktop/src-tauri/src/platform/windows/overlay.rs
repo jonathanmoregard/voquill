@@ -31,6 +31,10 @@ pub fn notify_pitch_color(app: &tauri::AppHandle, color: &str) {
     pill_process::notify_pitch_color(app, color);
 }
 
+pub fn notify_pitch_blend(app: &tauri::AppHandle, t: f32) {
+    pill_process::notify_pitch_blend(app, t);
+}
+
 pub fn notify_visibility(app: &tauri::AppHandle, visibility: &str) {
     pill_process::notify_visibility(app, visibility);
 }

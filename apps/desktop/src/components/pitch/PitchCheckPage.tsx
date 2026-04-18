@@ -6,6 +6,7 @@ import { showErrorSnackbar } from "../../actions/app.actions";
 import {
   setPitchFeedbackEnabled,
   setPitchThresholdHz,
+  setPitchTransitionWindowHz,
 } from "../../actions/user.actions";
 import { useAppStore } from "../../store";
 import { getMyUserPreferences } from "../../utils/user.utils";
@@ -18,15 +19,40 @@ export default function PitchCheckPage() {
   const prefs = useAppStore((state) => getMyUserPreferences(state));
   const pitchFeedbackEnabled = prefs?.pitchFeedbackEnabled ?? false;
   const pitchThresholdHz = prefs?.pitchThresholdHz ?? 155;
+  const pitchTransitionWindowHz = prefs?.pitchTransitionWindowHz ?? 2;
 
   const [thresholdInput, setThresholdInput] = useState(String(pitchThresholdHz));
+  const [windowInput, setWindowInput] = useState(String(pitchTransitionWindowHz));
   const lastCommittedRef = useRef(pitchThresholdHz);
+  const lastCommittedWindowRef = useRef(pitchTransitionWindowHz);
   const [isCalibrating, setIsCalibrating] = useState(false);
 
   useEffect(() => {
     lastCommittedRef.current = pitchThresholdHz;
     setThresholdInput(String(pitchThresholdHz));
   }, [pitchThresholdHz]);
+
+  useEffect(() => {
+    lastCommittedWindowRef.current = pitchTransitionWindowHz;
+    setWindowInput(String(pitchTransitionWindowHz));
+  }, [pitchTransitionWindowHz]);
+
+  const commitWindow = () => {
+    if (windowInput === "") {
+      setWindowInput(String(pitchTransitionWindowHz));
+      return;
+    }
+    const parsed = Number(windowInput);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setWindowInput(String(pitchTransitionWindowHz));
+      return;
+    }
+    const normalized = Math.max(0, Math.min(200, parsed));
+    setWindowInput(String(normalized));
+    if (normalized === lastCommittedWindowRef.current) return;
+    lastCommittedWindowRef.current = normalized;
+    void setPitchTransitionWindowHz(normalized);
+  };
 
   const commitThreshold = () => {
     if (thresholdInput === "") {
@@ -110,6 +136,30 @@ export default function PitchCheckPage() {
                 }
               }}
               inputProps={{ min: 50, max: 400, step: 1 }}
+              sx={{ width: 110 }}
+            />
+          }
+        />
+
+        <SettingSection
+          title={<FormattedMessage defaultMessage="Transition window (Hz)" />}
+          description={
+            <FormattedMessage defaultMessage="Hz range centered on the threshold where the color fades from green to red. Smaller = sharper transition." />
+          }
+          action={
+            <TextField
+              size="small"
+              type="number"
+              value={windowInput}
+              disabled={!pitchFeedbackEnabled}
+              onChange={(event) => setWindowInput(event.target.value)}
+              onBlur={commitWindow}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              inputProps={{ min: 0, max: 200, step: 0.5 }}
               sx={{ width: 110 }}
             />
           }

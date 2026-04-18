@@ -40,6 +40,7 @@ export type UserPreferences = {
   menuBarIconHidden: boolean;
   pitchFeedbackEnabled: boolean;
   pitchThresholdHz: number;
+  pitchTransitionWindowHz: number;
 
   // deprecated
   isEnterprise: boolean;

@@ -53,6 +53,7 @@ type LocalUserPreferences = {
   menuBarIconHidden: boolean;
   pitchFeedbackEnabled: boolean;
   pitchThresholdHz: number;
+  pitchTransitionWindowHz: number;
 };
 
 // Normalize post-processing mode for backwards compatibility
@@ -111,6 +112,7 @@ const fromLocalPreferences = (
   menuBarIconHidden: preferences.menuBarIconHidden ?? false,
   pitchFeedbackEnabled: preferences.pitchFeedbackEnabled ?? false,
   pitchThresholdHz: preferences.pitchThresholdHz ?? 155,
+  pitchTransitionWindowHz: preferences.pitchTransitionWindowHz ?? 2,
 });
 
 const toLocalPreferences = (
@@ -158,6 +160,7 @@ const toLocalPreferences = (
   menuBarIconHidden: preferences.menuBarIconHidden ?? false,
   pitchFeedbackEnabled: preferences.pitchFeedbackEnabled ?? false,
   pitchThresholdHz: preferences.pitchThresholdHz ?? 155,
+  pitchTransitionWindowHz: preferences.pitchTransitionWindowHz ?? 2,
 });
 
 export abstract class BaseUserPreferencesRepo extends BaseRepo {

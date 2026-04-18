@@ -238,6 +238,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::commands::start_recording,
             crate::commands::stop_recording,
             crate::commands::set_pill_pitch_color,
+            crate::commands::set_pill_pitch_blend,
             crate::commands::calibrate_pitch,
             crate::commands::store_transcription_audio,
             crate::commands::storage_upload_data,

@@ -1272,13 +1272,23 @@ pub async fn set_pill_pitch_color(app: AppHandle, color: String) -> Result<(), S
 
 #[tauri::command]
 #[specta::specta]
+pub async fn set_pill_pitch_blend(app: AppHandle, t: f32) -> Result<(), String> {
+    crate::platform::overlay::notify_pitch_blend(&app, t);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn calibrate_pitch(
     recorder: State<'_, Arc<dyn crate::platform::Recorder>>,
     duration_ms: u64,
 ) -> Result<f32, String> {
     let samples = Arc::new(std::sync::Mutex::new(Vec::<f32>::new()));
+    let total_callbacks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let samples_clone = Arc::clone(&samples);
+    let total_clone = Arc::clone(&total_callbacks);
     let pitch_emitter: PitchCallback = Arc::new(move |hz: f32| {
+        total_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if hz > 0.0 {
             if let Ok(mut vec) = samples_clone.lock() {
                 vec.push(hz);
@@ -1303,11 +1313,21 @@ pub async fn calibrate_pitch(
         .map_err(|e| format!("Calibration stop task panicked: {e}"))??;
 
     let mut collected = samples.lock().map(|v| v.clone()).unwrap_or_default();
+    let total = total_callbacks.load(std::sync::atomic::Ordering::Relaxed);
+    log::info!(
+        "calibrate_pitch: {} total callbacks, {} valid Hz samples",
+        total,
+        collected.len()
+    );
     if collected.is_empty() {
-        return Err("No pitch samples detected. Speak during calibration.".to_string());
+        return Err(format!(
+            "No pitch samples detected ({} callbacks fired, all below clarity/power threshold). Speak louder during calibration.",
+            total
+        ));
     }
     collected.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let median = collected[collected.len() / 2];
+    log::info!("calibrate_pitch: median={} Hz from {} samples", median, collected.len());
     Ok(median)
 }
 

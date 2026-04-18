@@ -200,6 +200,7 @@ export const submitOnboarding = async () => {
       menuBarIconHidden: false,
       pitchFeedbackEnabled: false,
       pitchThresholdHz: 155,
+      pitchTransitionWindowHz: 2,
     };
 
     const [savedUser, savedPreferences] = await Promise.all([
