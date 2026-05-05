@@ -1,0 +1,89 @@
+{
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
+  "name": "Claude Code Sandbox",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TZ": "${localEnv:TZ:UTC}",
+      "GIT_DELTA_VERSION": "0.18.2",
+      "ZSH_IN_DOCKER_VERSION": "1.2.1"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW"
+  ],
+  "init": true,
+  "updateRemoteUserUID": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "bash",
+            "icon": "terminal-bash"
+          },
+          "zsh": {
+            "path": "zsh"
+          }
+        },
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "files.trimFinalNewlines": true
+      }
+    }
+  },
+  "remoteUser": "vscode",
+  "mounts": [
+    "source=devc-${localWorkspaceFolderBasename}-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=devc-${localWorkspaceFolderBasename}-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    "source=devc-${localWorkspaceFolderBasename}-gh-${devcontainerId},target=/home/vscode/.config/gh,type=volume",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.git/config,target=/workspace/.git/config,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.git/hooks,target=/workspace/.git/hooks,type=bind,readonly",
+    "source=${localEnv:HOME}/.cache/gh-tokens/${localWorkspaceFolderBasename},target=/run/gh-token,type=bind,readonly",
+    "source=${localEnv:HOME}/Repos/token-optimizer,target=/opt/token-optimizer,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude/CLAUDE.md,target=/home/vscode/.claude/CLAUDE.md,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude/skills,target=/home/vscode/.claude/skills,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude/plugins,target=/home/vscode/.claude/plugins,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude/agents,target=/home/vscode/.claude/agents,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude/commands,target=/home/vscode/.claude/commands,type=bind,readonly",
+    "source=/home/jonathan/Repos/everything-claude-code/skills/continuous-learning-v2,target=/home/vscode/.claude/skills/continuous-learning-v2,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude/container-staging/${localWorkspaceFolderBasename}/homunculus,target=/home/vscode/.claude/homunculus,type=bind"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
+    "GIT_CONFIG_GLOBAL": "/home/vscode/.gitconfig.local",
+    "UV_LINK_MODE": "copy",
+    "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+    "NPM_CONFIG_AUDIT": "true",
+    "NPM_CONFIG_FUND": "false",
+    "NPM_CONFIG_SAVE_EXACT": "true",
+    "NPM_CONFIG_UPDATE_NOTIFIER": "false",
+    "NPM_CONFIG_MINIMUM_RELEASE_AGE": "1440",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    "CLV2_CONFIG": "/workspace/.devcontainer/cl-v2-container-config.json"
+  },
+  "remoteEnv": {
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN:}",
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY:}",
+    "HTTP_PROXY": "http://172.17.0.1:8888",
+    "HTTPS_PROXY": "http://172.17.0.1:8888",
+    "NO_PROXY": "localhost,127.0.0.1"
+  },
+  "initializeCommand": "test -f \"$HOME/.gitconfig\" || touch \"$HOME/.gitconfig\"",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postCreateCommand": "uv run --no-project /opt/post_install.py && bash /workspace/.devcontainer/claude-sandbox-post.sh"
+}

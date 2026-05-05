@@ -1,0 +1,7 @@
+{
+  "version": "2.1",
+  "observer": {
+    "enabled": false,
+    "_comment": "analysis happens on host; container only captures observations"
+  }
+}
