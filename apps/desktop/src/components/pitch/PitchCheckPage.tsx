@@ -1,4 +1,12 @@
-import { Box, Button, CircularProgress, Stack, Switch, TextField, Typography } from "@mui/material";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { invoke } from "@tauri-apps/api/core";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { FormattedMessage } from "react-intl";
@@ -21,8 +29,12 @@ export default function PitchCheckPage() {
   const pitchThresholdHz = prefs?.pitchThresholdHz ?? 155;
   const pitchTransitionWindowHz = prefs?.pitchTransitionWindowHz ?? 2;
 
-  const [thresholdInput, setThresholdInput] = useState(String(pitchThresholdHz));
-  const [windowInput, setWindowInput] = useState(String(pitchTransitionWindowHz));
+  const [thresholdInput, setThresholdInput] = useState(
+    String(pitchThresholdHz),
+  );
+  const [windowInput, setWindowInput] = useState(
+    String(pitchTransitionWindowHz),
+  );
   const lastCommittedRef = useRef(pitchThresholdHz);
   const lastCommittedWindowRef = useRef(pitchTransitionWindowHz);
   const [isCalibrating, setIsCalibrating] = useState(false);
