@@ -72,6 +72,36 @@ export const isModifierOnlyCombo = (combo: string[]): boolean => {
   return combo.length > 0 && combo.every((key) => isModifierLikeKey(key));
 };
 
+const toNormalizedKeySet = (keys: string[]): Set<string> =>
+  new Set(keys.map((key) => key.toLowerCase()));
+
+export const matchesComboExactly = (
+  held: string[],
+  combo: string[],
+): boolean => {
+  if (combo.length === 0) {
+    return false;
+  }
+
+  const heldSet = toNormalizedKeySet(held);
+  const requiredSet = toNormalizedKeySet(combo);
+
+  if (heldSet.size !== requiredSet.size) {
+    return false;
+  }
+
+  return Array.from(requiredSet).every((key) => heldSet.has(key));
+};
+
+export const comboStillHeld = (held: string[], combo: string[]): boolean => {
+  if (combo.length === 0) {
+    return false;
+  }
+
+  const heldSet = toNormalizedKeySet(held);
+  return combo.every((key) => heldSet.has(key.toLowerCase()));
+};
+
 export const getPrettyKeyName = (key: string): string => {
   const lower = key.toLowerCase();
   if (lower.startsWith("key")) {

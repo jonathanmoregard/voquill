@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 import { getAppState, useAppStore } from "../store";
 import type { ActivationController } from "../utils/activation.utils";
-import { getHotkeyCombosForAction } from "../utils/keyboard.utils";
+import {
+  comboStillHeld,
+  getHotkeyCombosForAction,
+  matchesComboExactly,
+} from "../utils/keyboard.utils";
 
 type HoldAction = { actionName: string; controller: ActivationController };
 
@@ -46,29 +50,16 @@ export const useHotkeyHoldMany = (args: {
   }, [args.actions]);
 
   useEffect(() => {
-    const normalize = (key: string) => key.toLowerCase();
-
-    const matchesCombo = (held: string[], combo: string[]) => {
-      if (combo.length === 0) {
-        return false;
-      }
-
-      const uniqueHeld = Array.from(new Set(held.map((key) => normalize(key))));
-      const required = Array.from(new Set(combo.map((key) => normalize(key))));
-
-      if (uniqueHeld.length !== required.length) {
-        return false;
-      }
-
-      const heldSet = new Set(uniqueHeld);
-      return required.every((key) => heldSet.has(key));
-    };
-
     for (const action of args.actions) {
       const availableCombos = combosByAction[action.actionName] ?? [];
       const wasPressed = wasPressedRef.current.get(action.actionName) ?? false;
+      // Activation requires the combo to be held exactly, but an active hold
+      // only ends when a combo key is released — stray events from other
+      // devices (e.g. headset media keys) must not cancel the hold.
       const isPressed = availableCombos.some((combo) =>
-        matchesCombo(keysHeld, combo),
+        wasPressed
+          ? comboStillHeld(keysHeld, combo)
+          : matchesComboExactly(keysHeld, combo),
       );
 
       if (isDisabled) {
