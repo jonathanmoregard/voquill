@@ -147,6 +147,33 @@ export class ActivationController {
   }
 }
 
+export type ControllerActivitySnapshot = ReadonlyArray<{
+  controller: Pick<ActivationController, "isActive">;
+  wasActive: boolean;
+}>;
+
+/** Records which controllers are active at this instant. */
+export const snapshotControllerActivity = (
+  controllers: ReadonlyArray<Pick<ActivationController, "isActive">>,
+): ControllerActivitySnapshot =>
+  controllers.map((controller) => ({
+    controller,
+    wasActive: controller.isActive,
+  }));
+
+/**
+ * True when a controller became active after the snapshot was taken — i.e. a
+ * new hold started while the previous stop pipeline was still running. A
+ * wholesale hotkey reset at that point would kill the new hold and leave the
+ * physically held key unrecoverable until re-press.
+ */
+export const hasNewlyActiveController = (
+  snapshot: ControllerActivitySnapshot,
+): boolean =>
+  snapshot.some(
+    ({ controller, wasActive }) => controller.isActive && !wasActive,
+  );
+
 const lastToggleByKey = new Map<string, number>();
 
 export function debouncedToggle(

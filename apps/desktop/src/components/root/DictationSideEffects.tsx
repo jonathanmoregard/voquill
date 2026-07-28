@@ -48,6 +48,8 @@ import {
 import {
   ActivationController,
   debouncedToggle,
+  hasNewlyActiveController,
+  snapshotControllerActivity,
 } from "../../utils/activation.utils";
 import {
   trackAgentStart,
@@ -166,6 +168,15 @@ export const DictationSideEffects = () => {
         ),
       })),
     [additionalLanguageEntries],
+  );
+
+  const allActivationControllers = useMemo(
+    () => [
+      dictationController,
+      agentController,
+      ...additionalLanguageControllers.map(({ controller }) => controller),
+    ],
+    [dictationController, agentController, additionalLanguageControllers],
   );
 
   const restoreSystemVolume = useCallback(() => {
@@ -429,6 +440,9 @@ export const DictationSideEffects = () => {
     getLogger().info("stopRecording entered");
     isStoppingRef.current = true;
     setIsStopping(true);
+    const controllerActivityAtEntry = snapshotControllerActivity(
+      allActivationControllers,
+    );
     try {
       const res = await stopRecordingRaw().catch((error) => {
         getLogger().error(
@@ -449,11 +463,26 @@ export const DictationSideEffects = () => {
         );
       }
     } finally {
-      hardResetHotkeyState();
+      // A new hold may have started while the stop pipeline was running.
+      // Wholesale-clearing hotkey state at that point kills the new hold and
+      // leaves the physically held key unrecoverable until re-press.
+      if (hasNewlyActiveController(controllerActivityAtEntry)) {
+        getLogger().info(
+          "Skipping hotkey hard reset: a new hold started during the stop pipeline",
+        );
+      } else {
+        hardResetHotkeyState();
+      }
       isStoppingRef.current = false;
       setIsStopping(false);
     }
-  }, [abortRecording, hardResetHotkeyState, stopRecordingRaw, setIsStopping]);
+  }, [
+    abortRecording,
+    allActivationControllers,
+    hardResetHotkeyState,
+    stopRecordingRaw,
+    setIsStopping,
+  ]);
 
   const startRecordingTimers = useCallback(() => {
     clearRecordingTimers();
