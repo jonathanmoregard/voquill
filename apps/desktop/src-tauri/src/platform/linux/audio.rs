@@ -267,14 +267,16 @@ fn record_loop(
     let mut read_buf = vec![0u8; READ_CHUNK_FRAMES * std::mem::size_of::<f32>()];
 
     loop {
-        // Check stop signal
-        if let Ok(flag) = stop_signal.lock() {
-            if *flag {
-                break;
-            }
-        }
+        // Observe the stop signal, but still perform one final (bounded)
+        // drain read below so the last ~64ms fragment already captured by
+        // PulseAudio isn't dropped — otherwise the tail of speech ending at
+        // the stop keypress is lost.
+        let stop_requested = stop_signal
+            .lock()
+            .map(|flag| *flag)
+            .unwrap_or(false);
 
-        // Read audio data (blocking)
+        // Read audio data (blocking, bounded by fragsize)
         if let Err(err) = simple.read(&mut read_buf) {
             log::error!("PulseAudio read error: {err}");
             break;
@@ -344,6 +346,10 @@ fn record_loop(
                 };
                 cb(hz);
             }
+        }
+
+        if stop_requested {
+            break;
         }
     }
 
