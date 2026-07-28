@@ -134,6 +134,23 @@ pub fn sync_combos(combos: Vec<Vec<String>>) {
     }
 }
 
+/// Whether the global key listener currently sees any physically pressed keys.
+/// Used to avoid synthesizing modifier releases while the user is mid-hold.
+pub fn any_keys_currently_pressed() -> bool {
+    let state = listener_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    state.as_ref().is_some_and(|handle| {
+        let guard = handle
+            .emitter
+            .pressed_keys
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        !guard.is_empty()
+    })
+}
+
 pub fn reset_pressed_keys() {
     let state = listener_state()
         .lock()
