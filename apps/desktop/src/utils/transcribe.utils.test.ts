@@ -1,8 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
+  isSuspiciouslyShortTranscript,
   mergeTranscriptions,
+  MIN_CLIP_SECONDS_FOR_LENGTH_CHECK,
   splitAudioTranscription,
+  SUSPICIOUS_CHARS_PER_SECOND,
 } from "./transcribe.utils";
+
+describe("isSuspiciouslyShortTranscript", () => {
+  it("flags a long clip with a very short transcript", () => {
+    // 15s clip, one short sentence (~30 chars) => 2 chars/s.
+    expect(isSuspiciouslyShortTranscript(30, 15)).toBe(true);
+  });
+
+  it("does not flag normal speech rates", () => {
+    // 15s clip, ~12 chars/s.
+    expect(isSuspiciouslyShortTranscript(180, 15)).toBe(false);
+  });
+
+  it("ignores clips below the minimum duration", () => {
+    expect(
+      isSuspiciouslyShortTranscript(0, MIN_CLIP_SECONDS_FOR_LENGTH_CHECK - 1),
+    ).toBe(false);
+  });
+
+  it("uses the threshold boundary correctly", () => {
+    const clipSeconds = 10;
+    const atThreshold = SUSPICIOUS_CHARS_PER_SECOND * clipSeconds;
+    expect(isSuspiciouslyShortTranscript(atThreshold, clipSeconds)).toBe(false);
+    expect(isSuspiciouslyShortTranscript(atThreshold - 1, clipSeconds)).toBe(
+      true,
+    );
+  });
+});
 
 describe("mergeTranscriptions", () => {
   describe("basic overlap detection", () => {

@@ -56,6 +56,92 @@ export const buildWaveFile = (
 export const normalizeSamples = (samples: AudioSamples): number[] =>
   Array.isArray(samples) ? samples : Array.from(samples ?? []);
 
+/**
+ * Trailing silence appended to a clip before transcription so speech that
+ * runs right up to the stop keypress isn't clipped by the model.
+ */
+export const TRAILING_SILENCE_MS = 500;
+
+/**
+ * Leading window excluded from peak measurement. The interaction chime can
+ * bleed into the first moments of a recording and would otherwise set the
+ * scale, leaving quiet speech unamplified.
+ */
+export const PEAK_EXCLUDED_LEADING_MS = 600;
+
+/** Normalization target peak of roughly -3 dBFS. */
+export const NORMALIZATION_TARGET_PEAK = 0.708;
+
+/** Maximum normalization gain (+20 dB) so near-silent clips aren't turned into pure noise. */
+export const NORMALIZATION_MAX_GAIN = 10;
+
+/**
+ * Appends silence to the end of a clip. Whisper-style models tend to drop the
+ * final words when speech ends exactly at the clip boundary.
+ */
+export const appendTrailingSilence = (
+  samples: Float32Array,
+  sampleRate: number,
+  silenceMs: number = TRAILING_SILENCE_MS,
+): Float32Array => {
+  const padCount = Math.round((sampleRate * silenceMs) / 1000);
+  if (samples.length === 0 || padCount <= 0) {
+    return samples;
+  }
+  const padded = new Float32Array(samples.length + padCount);
+  padded.set(samples, 0);
+  return padded;
+};
+
+/**
+ * Peak-normalizes a clip for transcription, measuring the peak while
+ * excluding the leading chime window so a loud interaction-chime bleed at
+ * t=0 doesn't prevent quiet speech from being amplified. Gain is clamped to
+ * NORMALIZATION_MAX_GAIN and the output is clamped to [-1, 1] (the excluded
+ * leading window may clip, which is acceptable for chime bleed).
+ */
+export const peakNormalizeForTranscription = (
+  samples: Float32Array,
+  sampleRate: number,
+): Float32Array => {
+  if (samples.length === 0) {
+    return samples;
+  }
+
+  const excludedCount = Math.floor(
+    (sampleRate * PEAK_EXCLUDED_LEADING_MS) / 1000,
+  );
+  // If the whole clip fits inside the excluded window, measure everything.
+  const measureStart = excludedCount >= samples.length ? 0 : excludedCount;
+
+  let peak = 0;
+  for (let index = measureStart; index < samples.length; index += 1) {
+    const magnitude = Math.abs(samples[index] ?? 0);
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+
+  // Digital silence: amplifying would only manufacture noise.
+  if (peak < 1e-6) {
+    return samples;
+  }
+
+  const gain = Math.min(
+    NORMALIZATION_TARGET_PEAK / peak,
+    NORMALIZATION_MAX_GAIN,
+  );
+  if (Math.abs(gain - 1) < 1e-3) {
+    return samples;
+  }
+
+  const normalized = new Float32Array(samples.length);
+  for (let index = 0; index < samples.length; index += 1) {
+    normalized[index] = Math.max(-1, Math.min(1, (samples[index] ?? 0) * gain));
+  }
+  return normalized;
+};
+
 export type AudioClip =
   | "start_recording_clip"
   | "stop_recording_clip"

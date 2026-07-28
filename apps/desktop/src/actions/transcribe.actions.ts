@@ -35,6 +35,7 @@ import {
   PROCESSED_TRANSCRIPTION_SCHEMA,
 } from "../utils/prompt.utils";
 import { getToneById, getToneConfig } from "../utils/tone.utils";
+import { isSuspiciouslyShortTranscript } from "../utils/transcribe.utils";
 import {
   getMyEffectiveUserId,
   getMyUserName,
@@ -145,6 +146,17 @@ export const transcribeAudio = async ({
   getLogger().info(
     `Transcription complete in ${Math.round(transcribeDuration)}ms (${rawTranscript.length} chars, mode=${transcribeOutput.metadata?.transcriptionMode ?? "unknown"})`,
   );
+
+  const clipDurationSec = (samples?.length ?? 0) / sampleRate;
+  if (isSuspiciouslyShortTranscript(rawTranscript.length, clipDurationSec)) {
+    const charsPerSecond = rawTranscript.length / clipDurationSec;
+    getLogger().warning(
+      `Transcript suspiciously short for clip: ${rawTranscript.length} chars over ${clipDurationSec.toFixed(1)}s (${charsPerSecond.toFixed(2)} chars/s) — the model may have ignored part of the audio`,
+    );
+    warnings.push(
+      "The transcript looks much shorter than the recording — it may be incomplete.",
+    );
+  }
 
   metadata.modelSize =
     transcribeOutput.metadata?.modelSize ||

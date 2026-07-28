@@ -1,5 +1,26 @@
 import { getStringSimilarity } from "./string.utils";
 
+/** Below this chars-per-second rate a transcript is suspiciously short for the clip. */
+export const SUSPICIOUS_CHARS_PER_SECOND = 4;
+
+/** Clips shorter than this aren't checked (a short clip can validly yield few characters). */
+export const MIN_CLIP_SECONDS_FOR_LENGTH_CHECK = 3;
+
+/**
+ * Heuristic for a transcription that likely gave up partway through a clip:
+ * normal speech produces well above 4 characters per second, so a long clip
+ * with a very short transcript suggests the model ignored part of the audio.
+ */
+export const isSuspiciouslyShortTranscript = (
+  transcriptCharCount: number,
+  clipDurationSec: number,
+): boolean => {
+  if (clipDurationSec < MIN_CLIP_SECONDS_FOR_LENGTH_CHECK) {
+    return false;
+  }
+  return transcriptCharCount / clipDurationSec < SUSPICIOUS_CHARS_PER_SECOND;
+};
+
 /**
  * Normalizes text for comparison by removing punctuation, hyphens, and lowercasing.
  * This creates a canonical form for fuzzy matching.
