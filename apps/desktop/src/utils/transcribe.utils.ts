@@ -33,6 +33,63 @@ const normalizeText = (text: string): string => {
     .trim();
 };
 
+/**
+ * A transcript this short can be a genuine one-word dictation, so it is never
+ * treated as a prompt echo — glossary terms are words a user will legitimately
+ * dictate on their own.
+ */
+const MIN_ECHO_WORDS = 3;
+
+/** A transcript made up entirely of bracketed tags: `[BLANK_AUDIO]`, `(wind blowing)`. */
+const NON_SPEECH_TAGS_ONLY = /^(?:\s*[[(][^\])]*[\])]\s*)+$/;
+
+/**
+ * Scaffolding the provider wraps the prompt in before handing it to the model.
+ * On a clip with nothing to transcribe the model returns the wrapper itself —
+ * `context:` and `###` fences both show up on their own or around an echoed
+ * glossary.
+ */
+const MODEL_SCAFFOLD = /^\s*context:\s*|#{2,}/g;
+
+/**
+ * Whether a transcript is model output invented from the prompt rather than
+ * heard in the audio.
+ *
+ * Transcription models treat the prompt as context to continue, so a clip with
+ * little to say in it can come back as the glossary itself. Only multi-word
+ * echoes count: a single glossary term is far more likely to be the word the
+ * user actually said.
+ */
+export const isHallucinatedTranscript = (
+  transcript: string,
+  prompt: string | null | undefined,
+): boolean => {
+  if (!transcript.trim()) {
+    return false;
+  }
+
+  if (NON_SPEECH_TAGS_ONLY.test(transcript.trim())) {
+    return true;
+  }
+
+  const withoutScaffold = transcript.replace(MODEL_SCAFFOLD, "");
+  const normalizedTranscript = normalizeText(withoutScaffold);
+  if (!normalizedTranscript) {
+    // Nothing but scaffolding was returned.
+    return true;
+  }
+
+  const normalizedPrompt = normalizeText(prompt ?? "");
+  if (!normalizedPrompt) {
+    return false;
+  }
+
+  return (
+    normalizedTranscript.split(" ").length >= MIN_ECHO_WORDS &&
+    normalizedPrompt.includes(normalizedTranscript)
+  );
+};
+
 /** Minimum similarity threshold for considering two text segments as matching */
 const SIMILARITY_THRESHOLD = 0.75;
 

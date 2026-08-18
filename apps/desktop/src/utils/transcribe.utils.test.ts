@@ -1,11 +1,89 @@
 import { describe, expect, it } from "vitest";
 import {
+  isHallucinatedTranscript,
   isSuspiciouslyShortTranscript,
   mergeTranscriptions,
   MIN_CLIP_SECONDS_FOR_LENGTH_CHECK,
   splitAudioTranscription,
   SUSPICIOUS_CHARS_PER_SECOND,
 } from "./transcribe.utils";
+
+describe("isHallucinatedTranscript", () => {
+  const PROMPT =
+    "Glossary: claude code, jhana, autodoro, dev, Voquill, Jonathan";
+
+  it("flags the prompt echoed back verbatim", () => {
+    expect(isHallucinatedTranscript(PROMPT, PROMPT)).toBe(true);
+  });
+
+  it("flags a run of glossary terms returned as the transcript", () => {
+    expect(
+      isHallucinatedTranscript("claude code, jhana, autodoro", PROMPT),
+    ).toBe(true);
+  });
+
+  it("flags an echo that differs only in punctuation and case", () => {
+    expect(
+      isHallucinatedTranscript("glossary claude code jhana autodoro", PROMPT),
+    ).toBe(true);
+  });
+
+  it("keeps a single glossary term, which is a legitimate dictation", () => {
+    expect(isHallucinatedTranscript("Jonathan", PROMPT)).toBe(false);
+    expect(isHallucinatedTranscript("Voquill", PROMPT)).toBe(false);
+  });
+
+  it("keeps a short phrase built from glossary terms", () => {
+    expect(isHallucinatedTranscript("claude code", PROMPT)).toBe(false);
+  });
+
+  it("keeps real speech that merely mentions glossary terms", () => {
+    expect(
+      isHallucinatedTranscript(
+        "Open Voquill and check the jhana notes",
+        PROMPT,
+      ),
+    ).toBe(false);
+  });
+
+  it("flags a transcript that is only non-speech tags", () => {
+    expect(isHallucinatedTranscript("[BLANK_AUDIO]", PROMPT)).toBe(true);
+    expect(isHallucinatedTranscript("[Music] [Applause]", PROMPT)).toBe(true);
+    expect(isHallucinatedTranscript("(wind blowing)", PROMPT)).toBe(true);
+  });
+
+  // Every string below was produced by gpt-4o-transcribe on a silent clip
+  // during the A/B run, with this exact glossary prompt.
+  it("flags provider scaffolding returned on its own", () => {
+    expect(isHallucinatedTranscript("context:", PROMPT)).toBe(true);
+    expect(isHallucinatedTranscript("###", PROMPT)).toBe(true);
+    expect(isHallucinatedTranscript("context: ###", PROMPT)).toBe(true);
+  });
+
+  it("flags an echo wrapped in provider scaffolding", () => {
+    expect(
+      isHallucinatedTranscript(`context: ###\n${PROMPT}\n###`, PROMPT),
+    ).toBe(true);
+  });
+
+  it("keeps speech that merely starts with the word context", () => {
+    expect(
+      isHallucinatedTranscript("context: the meeting ran long", PROMPT),
+    ).toBe(false);
+  });
+
+  it("keeps speech that contains a parenthetical", () => {
+    expect(isHallucinatedTranscript("see figure two (page 4)", PROMPT)).toBe(
+      false,
+    );
+  });
+
+  it("handles an empty transcript or a missing prompt", () => {
+    expect(isHallucinatedTranscript("", PROMPT)).toBe(false);
+    expect(isHallucinatedTranscript("anything at all here", null)).toBe(false);
+    expect(isHallucinatedTranscript("anything at all here", "")).toBe(false);
+  });
+});
 
 describe("isSuspiciouslyShortTranscript", () => {
   it("flags a long clip with a very short transcript", () => {

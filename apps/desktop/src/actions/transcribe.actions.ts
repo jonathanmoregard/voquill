@@ -19,6 +19,11 @@ import {
   extractJsonFromMarkdown,
   unwrapNestedLlmResponse,
 } from "../utils/ai.utils";
+import {
+  maxWindowLoudnessDbfs,
+  SPEECH_THRESHOLD_DBFS,
+  SPEECH_WINDOW_MS,
+} from "../utils/audio.utils";
 import { createId } from "../utils/id.utils";
 import {
   coerceToDictationLanguage,
@@ -35,7 +40,10 @@ import {
   PROCESSED_TRANSCRIPTION_SCHEMA,
 } from "../utils/prompt.utils";
 import { getToneById, getToneConfig } from "../utils/tone.utils";
-import { isSuspiciouslyShortTranscript } from "../utils/transcribe.utils";
+import {
+  isHallucinatedTranscript,
+  isSuspiciouslyShortTranscript,
+} from "../utils/transcribe.utils";
 import {
   getMyEffectiveUserId,
   getMyUserName,
@@ -105,6 +113,17 @@ export const transcribeAudio = async ({
   const metadata: TranscribeAudioMetadata = {};
   const warnings: string[] = [];
 
+  // Measured on the raw capture, before the repo applies normalization gain:
+  // amplifying a room-noise floor toward speech loudness is exactly what would
+  // make a silent clip look transcribable.
+  const clipLoudnessDbfs = maxWindowLoudnessDbfs(samples, sampleRate);
+  if (clipLoudnessDbfs < SPEECH_THRESHOLD_DBFS) {
+    getLogger().info(
+      `Skipping transcription: no speech in clip (loudest ${SPEECH_WINDOW_MS}ms window ${clipLoudnessDbfs.toFixed(1)} dBFS, threshold ${SPEECH_THRESHOLD_DBFS} dBFS)`,
+    );
+    return { rawTranscript: "", warnings: [], metadata };
+  }
+
   const {
     repo: transcribeRepo,
     apiKeyId: transcriptionApiKeyId,
@@ -141,7 +160,21 @@ export const transcribeAudio = async ({
     language: whisperLanguage,
   });
   const transcribeDuration = performance.now() - transcribeStart;
-  const rawTranscript = transcribeOutput.text.trim();
+  const modelOutput = transcribeOutput.text.trim();
+
+  // Backstop for what survives the speech gate: quiet-but-real audio can still
+  // come back as the glossary the model was primed with rather than as speech.
+  const rawTranscript = isHallucinatedTranscript(
+    modelOutput,
+    transcriptionPrompt,
+  )
+    ? ""
+    : modelOutput;
+  if (modelOutput && !rawTranscript) {
+    getLogger().warning(
+      `Discarded transcript echoing the transcription prompt: "${modelOutput}"`,
+    );
+  }
 
   getLogger().info(
     `Transcription complete in ${Math.round(transcribeDuration)}ms (${rawTranscript.length} chars, mode=${transcribeOutput.metadata?.transcriptionMode ?? "unknown"})`,

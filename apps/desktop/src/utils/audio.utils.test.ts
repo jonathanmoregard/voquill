@@ -11,13 +11,20 @@ vi.mock("./user.utils", () => ({ getMyUser: () => null }));
 
 import {
   appendTrailingSilence,
+  containsSpeech,
+  maxWindowLoudnessDbfs,
   NORMALIZATION_MAX_GAIN,
   NORMALIZATION_TARGET_PEAK,
   peakNormalizeForTranscription,
+  SPEECH_THRESHOLD_DBFS,
   TRAILING_SILENCE_MS,
 } from "./audio.utils";
 
 const SAMPLE_RATE = 1000;
+
+/** Constant-amplitude tone at a given loudness, since RMS == amplitude for it. */
+const constantAt = (dbfs: number, sampleCount: number): Float32Array =>
+  new Float32Array(sampleCount).fill(10 ** (dbfs / 20));
 
 describe("appendTrailingSilence", () => {
   it("appends the configured amount of silence", () => {
@@ -84,5 +91,82 @@ describe("peakNormalizeForTranscription", () => {
     const samples = new Float32Array(1000).fill(1);
     const normalized = peakNormalizeForTranscription(samples, SAMPLE_RATE);
     expect(normalized[800]).toBeCloseTo(NORMALIZATION_TARGET_PEAK, 5);
+  });
+});
+
+describe("maxWindowLoudnessDbfs", () => {
+  it("reports the loudness of a constant clip", () => {
+    expect(
+      maxWindowLoudnessDbfs(constantAt(-20, 5000), SAMPLE_RATE),
+    ).toBeCloseTo(-20, 1);
+  });
+
+  it("reports the loudest window, not the clip average", () => {
+    // 10s of near-silence with a single loud second buried in the middle: the
+    // clip average is far below the gate, the loud window is far above it.
+    const samples = constantAt(-60, SAMPLE_RATE * 10);
+    samples.set(constantAt(-25, SAMPLE_RATE), SAMPLE_RATE * 5);
+
+    expect(maxWindowLoudnessDbfs(samples, SAMPLE_RATE)).toBeCloseTo(-25, 1);
+    expect(containsSpeech(samples, SAMPLE_RATE)).toBe(true);
+  });
+
+  it("is not fooled by a brief transient in a room-noise clip", () => {
+    // The shape of a real tap-and-release recording: a noise floor around
+    // -54 dBFS with a 1ms click peaking 29dB above it. Peak loudness would
+    // clear the gate; the windowed measure spreads the click's energy and
+    // leaves the clip where it belongs. A transient sustained for a whole
+    // window is a different matter — by energy alone it is a short word.
+    const samples = constantAt(-54, SAMPLE_RATE * 2);
+    samples.fill(0.05, 500, 501);
+
+    expect(maxWindowLoudnessDbfs(samples, SAMPLE_RATE)).toBeLessThan(
+      SPEECH_THRESHOLD_DBFS,
+    );
+    expect(containsSpeech(samples, SAMPLE_RATE)).toBe(false);
+  });
+
+  it("measures the whole clip when it is shorter than one window", () => {
+    expect(maxWindowLoudnessDbfs(constantAt(-20, 50), SAMPLE_RATE)).toBeCloseTo(
+      -20,
+      1,
+    );
+  });
+
+  it("reports negative infinity for empty and digitally silent clips", () => {
+    expect(maxWindowLoudnessDbfs(new Float32Array(0), SAMPLE_RATE)).toBe(
+      Number.NEGATIVE_INFINITY,
+    );
+    expect(maxWindowLoudnessDbfs(new Float32Array(5000), SAMPLE_RATE)).toBe(
+      Number.NEGATIVE_INFINITY,
+    );
+  });
+
+  it("accepts plain number arrays", () => {
+    expect(
+      maxWindowLoudnessDbfs(Array.from(constantAt(-20, 5000)), SAMPLE_RATE),
+    ).toBeCloseTo(-20, 1);
+  });
+});
+
+describe("containsSpeech", () => {
+  // Loudness bounds measured over this user's stored recordings: real dictation
+  // never quieter than -31 dBFS, an accidental tap-and-release at -52 dBFS.
+  it("passes clips as quiet as real dictation gets", () => {
+    expect(containsSpeech(constantAt(-31, SAMPLE_RATE * 2), SAMPLE_RATE)).toBe(
+      true,
+    );
+  });
+
+  it("rejects a room-noise tap", () => {
+    expect(containsSpeech(constantAt(-52, SAMPLE_RATE * 2), SAMPLE_RATE)).toBe(
+      false,
+    );
+  });
+
+  it("rejects digital silence of any length", () => {
+    expect(
+      containsSpeech(new Float32Array(SAMPLE_RATE * 23), SAMPLE_RATE),
+    ).toBe(false);
   });
 });
