@@ -1,5 +1,26 @@
 import { getStringSimilarity } from "./string.utils";
 
+/** Below this chars-per-second rate a transcript is suspiciously short for the clip. */
+export const SUSPICIOUS_CHARS_PER_SECOND = 4;
+
+/** Clips shorter than this aren't checked (a short clip can validly yield few characters). */
+export const MIN_CLIP_SECONDS_FOR_LENGTH_CHECK = 3;
+
+/**
+ * Heuristic for a transcription that likely gave up partway through a clip:
+ * normal speech produces well above 4 characters per second, so a long clip
+ * with a very short transcript suggests the model ignored part of the audio.
+ */
+export const isSuspiciouslyShortTranscript = (
+  transcriptCharCount: number,
+  clipDurationSec: number,
+): boolean => {
+  if (clipDurationSec < MIN_CLIP_SECONDS_FOR_LENGTH_CHECK) {
+    return false;
+  }
+  return transcriptCharCount / clipDurationSec < SUSPICIOUS_CHARS_PER_SECOND;
+};
+
 /**
  * Normalizes text for comparison by removing punctuation, hyphens, and lowercasing.
  * This creates a canonical form for fuzzy matching.
@@ -10,6 +31,63 @@ const normalizeText = (text: string): string => {
     .replace(/[.,!?;:'"()[\]{}-]/g, "") // Remove punctuation including hyphens
     .replace(/\s+/g, " ") // Normalize whitespace
     .trim();
+};
+
+/**
+ * A transcript this short can be a genuine one-word dictation, so it is never
+ * treated as a prompt echo — glossary terms are words a user will legitimately
+ * dictate on their own.
+ */
+const MIN_ECHO_WORDS = 3;
+
+/** A transcript made up entirely of bracketed tags: `[BLANK_AUDIO]`, `(wind blowing)`. */
+const NON_SPEECH_TAGS_ONLY = /^(?:\s*[[(][^\])]*[\])]\s*)+$/;
+
+/**
+ * Scaffolding the provider wraps the prompt in before handing it to the model.
+ * On a clip with nothing to transcribe the model returns the wrapper itself —
+ * `context:` and `###` fences both show up on their own or around an echoed
+ * glossary.
+ */
+const MODEL_SCAFFOLD = /^\s*context:\s*|#{2,}/g;
+
+/**
+ * Whether a transcript is model output invented from the prompt rather than
+ * heard in the audio.
+ *
+ * Transcription models treat the prompt as context to continue, so a clip with
+ * little to say in it can come back as the glossary itself. Only multi-word
+ * echoes count: a single glossary term is far more likely to be the word the
+ * user actually said.
+ */
+export const isHallucinatedTranscript = (
+  transcript: string,
+  prompt: string | null | undefined,
+): boolean => {
+  if (!transcript.trim()) {
+    return false;
+  }
+
+  if (NON_SPEECH_TAGS_ONLY.test(transcript.trim())) {
+    return true;
+  }
+
+  const withoutScaffold = transcript.replace(MODEL_SCAFFOLD, "");
+  const normalizedTranscript = normalizeText(withoutScaffold);
+  if (!normalizedTranscript) {
+    // Nothing but scaffolding was returned.
+    return true;
+  }
+
+  const normalizedPrompt = normalizeText(prompt ?? "");
+  if (!normalizedPrompt) {
+    return false;
+  }
+
+  return (
+    normalizedTranscript.split(" ").length >= MIN_ECHO_WORDS &&
+    normalizedPrompt.includes(normalizedTranscript)
+  );
 };
 
 /** Minimum similarity threshold for considering two text segments as matching */

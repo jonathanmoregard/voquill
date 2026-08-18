@@ -16,9 +16,11 @@ import { getAppState } from "../store";
 import { DEFAULT_MODEL_SIZE, TranscriptionMode } from "../types/ai.types";
 import { AudioSamples } from "../types/audio.types";
 import {
+  appendTrailingSilence,
   buildWaveFile,
   ensureFloat32Array,
   normalizeSamples,
+  peakNormalizeForTranscription,
 } from "../utils/audio.utils";
 import { getEffectiveAuth } from "../utils/auth.utils";
 import { invokeEnterprise } from "../utils/enterprise.utils";
@@ -106,11 +108,19 @@ export abstract class BaseTranscribeAudioRepo extends BaseRepo {
     input: TranscribeAudioInput,
   ): Promise<TranscribeAudioOutput> {
     const normalizedSamples = normalizeSamples(input.samples);
-    const floatSamples = ensureFloat32Array(normalizedSamples);
+    const rawFloatSamples = ensureFloat32Array(normalizedSamples);
 
-    if (floatSamples.length === 0) {
+    if (rawFloatSamples.length === 0) {
       return { text: "", metadata: null };
     }
+
+    // Peak-normalize (excluding the leading chime window) so quiet speech
+    // isn't ignored by the model. Trailing silence is appended to whichever
+    // segment ends at the stop boundary so the last words aren't clipped.
+    const floatSamples = peakNormalizeForTranscription(
+      rawFloatSamples,
+      input.sampleRate,
+    );
 
     const segmentDurationSec = this.getSegmentDurationSec();
     const segmentSampleCount = Math.floor(
@@ -120,7 +130,7 @@ export abstract class BaseTranscribeAudioRepo extends BaseRepo {
     // If audio fits in a single segment, transcribe directly
     if (floatSamples.length <= segmentSampleCount) {
       return this.transcribeSegment({
-        samples: floatSamples,
+        samples: appendTrailingSilence(floatSamples, input.sampleRate),
         sampleRate: input.sampleRate,
         prompt: input.prompt,
         language: input.language,
@@ -135,11 +145,16 @@ export abstract class BaseTranscribeAudioRepo extends BaseRepo {
       overlapDurationSec: this.getOverlapDurationSec(),
     });
 
-    // Create promise factories for batched execution
+    // Create promise factories for batched execution. Only the final
+    // segment ends at the stop boundary, so only its tail gets the pad.
+    const lastSegmentIndex = segments.length - 1;
     const transcriptionTasks = segments.map(
-      (segmentSamples) => () =>
+      (segmentSamples, segmentIndex) => () =>
         this.transcribeSegment({
-          samples: segmentSamples,
+          samples:
+            segmentIndex === lastSegmentIndex
+              ? appendTrailingSilence(segmentSamples, input.sampleRate)
+              : segmentSamples,
           sampleRate: input.sampleRate,
           prompt: input.prompt,
           language: input.language,

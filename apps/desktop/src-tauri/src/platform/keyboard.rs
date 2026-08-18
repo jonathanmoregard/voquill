@@ -23,6 +23,16 @@ pub use super::windows::keyboard::run_listener_process;
 
 type PressedKeys = Arc<Mutex<HashSet<String>>>;
 
+#[cfg(target_os = "linux")]
+use super::linux::keyboard::query_physically_held_keys;
+
+/// Non-Linux platforms have no physical-state re-query yet; a reset falls
+/// back to clearing the pressed set.
+#[cfg(not(target_os = "linux"))]
+fn query_physically_held_keys() -> Option<Vec<String>> {
+    None
+}
+
 struct KeyEventEmitter {
     app: AppHandle,
     pressed_keys: PressedKeys,
@@ -40,11 +50,16 @@ impl KeyEventEmitter {
             log::debug!("event: {:?}", event.event_type);
         }
 
+        // Per-event DEBUG logging so hold/release incidents are diagnosable
+        // from normal logs. rdev exposes no synthetic/XTEST flag on its
+        // events, so injected events can't be distinguished here.
         match event.event_type {
             EventType::KeyPress(key) => {
+                log::debug!("key press: {}", key_to_label(key));
                 self.update_pressed_keys(key, true);
             }
             EventType::KeyRelease(key) => {
+                log::debug!("key release: {}", key_to_label(key));
                 self.update_pressed_keys(key, false);
             }
             _ => {}
@@ -73,13 +88,22 @@ impl KeyEventEmitter {
     }
 
     fn reset(&self) {
+        // Re-query the real keyboard state where the platform allows it
+        // instead of assuming nothing is held: a reset can race a fresh hold
+        // (the stop pipeline hard-resets seconds after release), and wiping a
+        // physically held key makes it unrecoverable until re-press.
+        let physically_held = query_physically_held_keys().unwrap_or_default();
+
         let mut guard = self
             .pressed_keys
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.clear();
+        guard.extend(physically_held);
+        let mut snapshot: Vec<String> = guard.iter().cloned().collect();
+        snapshot.sort_unstable();
         drop(guard);
-        self.emit(keys_payload(Vec::new()));
+        self.emit(keys_payload(snapshot));
     }
 
     fn emit(&self, payload: KeysHeldPayload) {
@@ -132,6 +156,23 @@ pub fn sync_combos(combos: Vec<Vec<String>>) {
             }
         }
     }
+}
+
+/// Whether the global key listener currently sees any physically pressed keys.
+/// Used to avoid synthesizing modifier releases while the user is mid-hold.
+pub fn any_keys_currently_pressed() -> bool {
+    let state = listener_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    state.as_ref().is_some_and(|handle| {
+        let guard = handle
+            .emitter
+            .pressed_keys
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        !guard.is_empty()
+    })
 }
 
 pub fn reset_pressed_keys() {

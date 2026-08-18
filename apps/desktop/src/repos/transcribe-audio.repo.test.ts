@@ -4,6 +4,12 @@ import {
   TranscribeAudioOutput,
   TranscribeSegmentInput,
 } from "./transcribe-audio.repo";
+import { TRAILING_SILENCE_MS } from "../utils/audio.utils";
+
+// The segment that ends at the stop boundary gets padded with trailing
+// silence before transcription.
+const trailingPad = (sampleRate: number): number =>
+  Math.round((sampleRate * TRAILING_SILENCE_MS) / 1000);
 
 /**
  * Mock implementation that tracks calls and returns predictable text
@@ -85,7 +91,9 @@ describe("BaseTranscribeAudioRepo", () => {
       const result = await repo.transcribeAudio({ samples, sampleRate });
 
       expect(repo.segmentCalls).toHaveLength(1);
-      expect(repo.segmentCalls[0]?.samples.length).toBe(samples.length);
+      expect(repo.segmentCalls[0]?.samples.length).toBe(
+        samples.length + trailingPad(sampleRate),
+      );
       expect(result.text).toBe("segment 0");
     });
 
@@ -116,7 +124,9 @@ describe("BaseTranscribeAudioRepo", () => {
       // Verify segment sizes
       expect(repo.segmentCalls[0]?.samples.length).toBe(sampleRate * 10); // full segment
       expect(repo.segmentCalls[1]?.samples.length).toBe(sampleRate * 10); // full segment
-      expect(repo.segmentCalls[2]?.samples.length).toBe(sampleRate * 9); // truncated (16-25s)
+      expect(repo.segmentCalls[2]?.samples.length).toBe(
+        sampleRate * 9 + trailingPad(sampleRate),
+      ); // truncated (16-25s) + trailing pad
     });
 
     it("should merge transcriptions with overlap detection", async () => {

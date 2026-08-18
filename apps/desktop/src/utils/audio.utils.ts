@@ -56,6 +56,166 @@ export const buildWaveFile = (
 export const normalizeSamples = (samples: AudioSamples): number[] =>
   Array.isArray(samples) ? samples : Array.from(samples ?? []);
 
+/**
+ * Length of the window the speech gate measures loudness over. Long enough that
+ * a keyboard click or chime transient is smeared well below speech level, short
+ * enough that a single spoken word still fills it.
+ */
+export const SPEECH_WINDOW_MS = 300;
+
+/**
+ * Loudness a clip must reach in some window to be considered speech, in dBFS.
+ * Measured against this user's own recordings: real dictation peaks at -31 dBFS
+ * or louder by this metric, an accidental tap-and-release at -52 dBFS. The
+ * threshold sits in that gap, closer to the noise side so quiet speech survives.
+ */
+export const SPEECH_THRESHOLD_DBFS = -45;
+
+const toDbfs = (amplitude: number): number =>
+  amplitude > 1e-9 ? 20 * Math.log10(amplitude) : Number.NEGATIVE_INFINITY;
+
+/**
+ * Loudness of the loudest window in the clip, in dBFS.
+ *
+ * Windowed rather than whole-clip: a clip's overall RMS is diluted by its
+ * pauses, so a minute of recording holding a single spoken word measures as
+ * silence. The loudest window answers the question that actually matters —
+ * whether there is speech anywhere in the clip.
+ */
+export const maxWindowLoudnessDbfs = (
+  samples: AudioSamples,
+  sampleRate: number,
+  windowMs: number = SPEECH_WINDOW_MS,
+): number => {
+  const values = samples ?? [];
+  const length = values.length;
+  if (length === 0 || sampleRate <= 0) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const windowSize = Math.max(
+    1,
+    Math.min(length, Math.round((sampleRate * windowMs) / 1000)),
+  );
+  const hop = Math.max(1, Math.floor(windowSize / 2));
+
+  let loudest = 0;
+  for (let start = 0; start + windowSize <= length; start += hop) {
+    let sumOfSquares = 0;
+    for (let index = start; index < start + windowSize; index += 1) {
+      const sample = values[index] ?? 0;
+      sumOfSquares += sample * sample;
+    }
+    const rms = Math.sqrt(sumOfSquares / windowSize);
+    if (rms > loudest) {
+      loudest = rms;
+    }
+  }
+
+  return toDbfs(loudest);
+};
+
+/**
+ * Whether a clip contains speech loud enough to be worth transcribing.
+ *
+ * Transcription models have no "silence" output class: handed a clip with no
+ * speech they emit their highest-prior continuation, which — when a glossary
+ * prompt is supplied — is frequently the prompt itself. Not calling the model
+ * is the only reliable fix, so the decision is made here, on the raw capture
+ * before any normalization gain is applied.
+ */
+export const containsSpeech = (
+  samples: AudioSamples,
+  sampleRate: number,
+): boolean =>
+  maxWindowLoudnessDbfs(samples, sampleRate) >= SPEECH_THRESHOLD_DBFS;
+
+/**
+ * Trailing silence appended to a clip before transcription so speech that
+ * runs right up to the stop keypress isn't clipped by the model.
+ */
+export const TRAILING_SILENCE_MS = 500;
+
+/**
+ * Leading window excluded from peak measurement. The interaction chime can
+ * bleed into the first moments of a recording and would otherwise set the
+ * scale, leaving quiet speech unamplified.
+ */
+export const PEAK_EXCLUDED_LEADING_MS = 600;
+
+/** Normalization target peak of roughly -3 dBFS. */
+export const NORMALIZATION_TARGET_PEAK = 0.708;
+
+/** Maximum normalization gain (+20 dB) so near-silent clips aren't turned into pure noise. */
+export const NORMALIZATION_MAX_GAIN = 10;
+
+/**
+ * Appends silence to the end of a clip. Whisper-style models tend to drop the
+ * final words when speech ends exactly at the clip boundary.
+ */
+export const appendTrailingSilence = (
+  samples: Float32Array,
+  sampleRate: number,
+  silenceMs: number = TRAILING_SILENCE_MS,
+): Float32Array => {
+  const padCount = Math.round((sampleRate * silenceMs) / 1000);
+  if (samples.length === 0 || padCount <= 0) {
+    return samples;
+  }
+  const padded = new Float32Array(samples.length + padCount);
+  padded.set(samples, 0);
+  return padded;
+};
+
+/**
+ * Peak-normalizes a clip for transcription, measuring the peak while
+ * excluding the leading chime window so a loud interaction-chime bleed at
+ * t=0 doesn't prevent quiet speech from being amplified. Gain is clamped to
+ * NORMALIZATION_MAX_GAIN and the output is clamped to [-1, 1] (the excluded
+ * leading window may clip, which is acceptable for chime bleed).
+ */
+export const peakNormalizeForTranscription = (
+  samples: Float32Array,
+  sampleRate: number,
+): Float32Array => {
+  if (samples.length === 0) {
+    return samples;
+  }
+
+  const excludedCount = Math.floor(
+    (sampleRate * PEAK_EXCLUDED_LEADING_MS) / 1000,
+  );
+  // If the whole clip fits inside the excluded window, measure everything.
+  const measureStart = excludedCount >= samples.length ? 0 : excludedCount;
+
+  let peak = 0;
+  for (let index = measureStart; index < samples.length; index += 1) {
+    const magnitude = Math.abs(samples[index] ?? 0);
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+
+  // Digital silence: amplifying would only manufacture noise.
+  if (peak < 1e-6) {
+    return samples;
+  }
+
+  const gain = Math.min(
+    NORMALIZATION_TARGET_PEAK / peak,
+    NORMALIZATION_MAX_GAIN,
+  );
+  if (Math.abs(gain - 1) < 1e-3) {
+    return samples;
+  }
+
+  const normalized = new Float32Array(samples.length);
+  for (let index = 0; index < samples.length; index += 1) {
+    normalized[index] = Math.max(-1, Math.min(1, (samples[index] ?? 0) * gain));
+  }
+  return normalized;
+};
+
 export type AudioClip =
   | "start_recording_clip"
   | "stop_recording_clip"
