@@ -116,6 +116,29 @@ export const maxWindowLoudnessDbfs = (
 };
 
 /**
+ * Whether the capture device produced no signal at all.
+ *
+ * A working microphone always dithers: across the recorded clips, even a
+ * deliberate tap-and-release with nothing said peaks at 0.05 with 0.5% of its
+ * samples at exactly zero. A device that is muted, suspended, or exposing no
+ * input stream — a Bluetooth headset in a2dp, say — returns every sample as
+ * exactly zero instead. The two cases do not overlap, so this needs no
+ * threshold and does not drift with input gain.
+ *
+ * Worth distinguishing because the two demand opposite responses: silence is a
+ * no-op the user intended, no signal is a fault they need told about.
+ */
+export const hasNoSignal = (samples: AudioSamples): boolean => {
+  const values = samples ?? [];
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] !== 0) {
+      return false;
+    }
+  }
+  return true;
+};
+
+/**
  * Whether a clip contains speech loud enough to be worth transcribing.
  *
  * Transcription models have no "silence" output class: handed a clip with no

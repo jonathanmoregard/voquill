@@ -12,6 +12,7 @@ vi.mock("./user.utils", () => ({ getMyUser: () => null }));
 import {
   appendTrailingSilence,
   containsSpeech,
+  hasNoSignal,
   maxWindowLoudnessDbfs,
   NORMALIZATION_MAX_GAIN,
   NORMALIZATION_TARGET_PEAK,
@@ -146,6 +147,39 @@ describe("maxWindowLoudnessDbfs", () => {
     expect(
       maxWindowLoudnessDbfs(Array.from(constantAt(-20, 5000)), SAMPLE_RATE),
     ).toBeCloseTo(-20, 1);
+  });
+});
+
+describe("hasNoSignal", () => {
+  it("reports no signal when every sample is exactly zero", () => {
+    expect(hasNoSignal(Array.from({ length: 16_000 }, () => 0))).toBe(true);
+  });
+
+  it("reports no signal for an empty clip", () => {
+    expect(hasNoSignal([])).toBe(true);
+  });
+
+  it("does not report no signal when a single sample is non-zero", () => {
+    const samples = Array.from({ length: 16_000 }, () => 0);
+    samples[9_999] = 1 / 32_768;
+    expect(hasNoSignal(samples)).toBe(false);
+  });
+
+  // Modelled on the one real tap-and-release with nothing said: it peaks at
+  // 0.05 yet measures -51.6 dBFS over its loudest window, because the peak is
+  // a brief transient in otherwise near-silent dither. So the clip is quiet
+  // AND live, and the two predicates must disagree about it — that disagreement
+  // is the whole point of having both.
+  it("separates a quiet but live capture from a dead one", () => {
+    const samples = Array.from({ length: 16_000 }, (_, index) =>
+      index % 2 === 0 ? 1 / 32_768 : -1 / 32_768,
+    );
+    for (let index = 8_000; index < 8_020; index += 1) {
+      samples[index] = 0.05;
+    }
+
+    expect(hasNoSignal(samples)).toBe(false);
+    expect(containsSpeech(samples, 16_000)).toBe(false);
   });
 });
 

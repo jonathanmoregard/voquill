@@ -20,6 +20,7 @@ import {
   unwrapNestedLlmResponse,
 } from "../utils/ai.utils";
 import {
+  hasNoSignal,
   maxWindowLoudnessDbfs,
   SPEECH_THRESHOLD_DBFS,
   SPEECH_WINDOW_MS,
@@ -116,6 +117,19 @@ export const transcribeAudio = async ({
   // Measured on the raw capture, before the repo applies normalization gain:
   // amplifying a room-noise floor toward speech loudness is exactly what would
   // make a silent clip look transcribable.
+  if (hasNoSignal(samples)) {
+    getLogger().warning(
+      "Skipping transcription: capture device produced no signal (every sample zero)",
+    );
+    return {
+      rawTranscript: "",
+      warnings: [
+        "No audio was captured. Check that the right microphone is selected and not muted.",
+      ],
+      metadata,
+    };
+  }
+
   const clipLoudnessDbfs = maxWindowLoudnessDbfs(samples, sampleRate);
   if (clipLoudnessDbfs < SPEECH_THRESHOLD_DBFS) {
     getLogger().info(
