@@ -1,6 +1,6 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -67,7 +67,7 @@ pub async fn start_enterprise_oidc_flow(
 
 fn random_string(length: usize) -> String {
     let mut bytes = vec![0u8; length];
-    OsRng.fill_bytes(&mut bytes);
+    OsRng.try_fill_bytes(&mut bytes).expect("OS RNG unavailable");
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

@@ -1,7 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rand::{RngCore, rngs::OsRng};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -54,7 +53,7 @@ pub fn run(env: Env, site_override: Option<String>) -> Result<()> {
 
 fn random_state() -> String {
     let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    rand::fill(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

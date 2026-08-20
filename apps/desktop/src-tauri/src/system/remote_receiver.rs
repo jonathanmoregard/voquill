@@ -1,4 +1,4 @@
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::net::UdpSocket;
@@ -151,7 +151,7 @@ pub fn stop(state: RemoteReceiverState) {
 
 fn generate_shared_secret() -> String {
     let mut bytes = [0u8; 16];
-    OsRng.fill_bytes(&mut bytes);
+    OsRng.try_fill_bytes(&mut bytes).expect("OS RNG unavailable");
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
