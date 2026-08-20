@@ -1,5 +1,5 @@
-use rand::seq::SliceRandom;
-use rand::{Rng, rngs::OsRng};
+use rand::RngExt;
+use rand::seq::IndexedRandom;
 
 const ADJECTIVES: &[&str] = &[
     "ancient",
@@ -148,7 +148,7 @@ const ANIMALS: &[&str] = &[
 ];
 
 pub fn name() -> String {
-    let mut rng = OsRng;
+    let mut rng = rand::rng();
     let adj = ADJECTIVES.choose(&mut rng).copied().unwrap_or("spry");
     let animal = ANIMALS.choose(&mut rng).copied().unwrap_or("otter");
     format!("{adj}-{animal}")
@@ -175,8 +175,8 @@ pub fn kebab(input: &str) -> String {
 }
 
 pub fn id() -> String {
-    let mut rng = OsRng;
-    let a: u64 = rng.r#gen();
-    let b: u32 = rng.r#gen();
+    let mut rng = rand::rng();
+    let a: u64 = rng.random();
+    let b: u32 = rng.random();
     format!("cli-{a:016x}{b:08x}")
 }

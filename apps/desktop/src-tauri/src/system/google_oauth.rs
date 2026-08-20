@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -129,7 +129,7 @@ pub async fn start_google_oauth(
 
 fn generate_code_verifier() -> String {
     let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    OsRng.try_fill_bytes(&mut bytes).expect("OS RNG unavailable");
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -140,7 +140,7 @@ fn compute_code_challenge(verifier: &str) -> String {
 
 fn random_string(length: usize) -> String {
     let mut bytes = vec![0u8; length];
-    OsRng.fill_bytes(&mut bytes);
+    OsRng.try_fill_bytes(&mut bytes).expect("OS RNG unavailable");
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

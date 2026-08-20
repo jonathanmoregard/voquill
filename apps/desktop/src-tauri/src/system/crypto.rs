@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
@@ -69,7 +69,7 @@ pub enum CryptoError {
 
 fn generate_salt() -> [u8; 16] {
     let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
+    OsRng.try_fill_bytes(&mut salt).expect("OS RNG unavailable");
     salt
 }
 

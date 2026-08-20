@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
@@ -153,6 +153,6 @@ impl RemoteReceiverState {
 
 fn generate_pairing_code() -> String {
     let mut bytes = [0u8; 12];
-    OsRng.fill_bytes(&mut bytes);
+    OsRng.try_fill_bytes(&mut bytes).expect("OS RNG unavailable");
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
