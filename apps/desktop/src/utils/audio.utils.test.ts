@@ -12,6 +12,8 @@ vi.mock("./user.utils", () => ({ getMyUser: () => null }));
 import {
   appendTrailingSilence,
   containsSpeech,
+  dynamicRangeDb,
+  hasNoSignal,
   maxWindowLoudnessDbfs,
   NORMALIZATION_MAX_GAIN,
   NORMALIZATION_TARGET_PEAK,
@@ -25,6 +27,20 @@ const SAMPLE_RATE = 1000;
 /** Constant-amplitude tone at a given loudness, since RMS == amplitude for it. */
 const constantAt = (dbfs: number, sampleCount: number): Float32Array =>
   new Float32Array(sampleCount).fill(10 ** (dbfs / 20));
+
+/** Rescales a clip, as changing the microphone's input gain would. */
+const atGain = (samples: Float32Array, gain: number): Float32Array =>
+  samples.map((sample) => sample * gain);
+
+/**
+ * The shape of speech: bursts standing well above the clip's own floor, with
+ * enough quiet windows either side to establish that floor.
+ */
+const burstsOver = (floorDbfs: number, burstDbfs: number): Float32Array => {
+  const samples = constantAt(floorDbfs, 3000);
+  samples.fill(10 ** (burstDbfs / 20), 1200, 1800);
+  return samples;
+};
 
 describe("appendTrailingSilence", () => {
   it("appends the configured amount of silence", () => {
@@ -149,6 +165,94 @@ describe("maxWindowLoudnessDbfs", () => {
   });
 });
 
+describe("hasNoSignal", () => {
+  it("reports no signal when every sample is exactly zero", () => {
+    expect(hasNoSignal(Array.from({ length: 16_000 }, () => 0))).toBe(true);
+  });
+
+  it("reports no signal for an empty clip", () => {
+    expect(hasNoSignal([])).toBe(true);
+  });
+
+  it("does not report no signal when a single sample is non-zero", () => {
+    const samples = Array.from({ length: 16_000 }, () => 0);
+    samples[9_999] = 1 / 32_768;
+    expect(hasNoSignal(samples)).toBe(false);
+  });
+
+  // Modelled on the one real tap-and-release with nothing said: room tone at
+  // -55.2 dBFS carrying a brief transient that lifts its loudest window to
+  // -51.6 dBFS. Reproducing the floor as room tone rather than as
+  // near-digital-silence matters: it is what makes the clip's dynamic range
+  // 3.8 dB, matching the real recording's 3.6 dB. So the clip is quiet AND
+  // live, and the two predicates must disagree about it — that disagreement is
+  // the whole point of having both.
+  it("separates a quiet but live capture from a dead one", () => {
+    const samples = Array.from(constantAt(-55.2, 16_000));
+    for (let index = 8_000; index < 8_008; index += 1) {
+      samples[index] = 0.05;
+    }
+
+    expect(maxWindowLoudnessDbfs(samples, 16_000)).toBeCloseTo(-51.4, 0);
+    expect(dynamicRangeDb(samples, 16_000)).toBeCloseTo(3.8, 0);
+    expect(hasNoSignal(samples)).toBe(false);
+    expect(containsSpeech(samples, 16_000)).toBe(false);
+  });
+});
+
+describe("dynamicRangeDb", () => {
+  it("measures a clip's peak against its own floor", () => {
+    expect(dynamicRangeDb(burstsOver(-70, -50), SAMPLE_RATE)).toBeCloseTo(
+      20,
+      1,
+    );
+  });
+
+  // The property the absolute threshold does not have. Scaling a clip moves
+  // its peak and its floor together, so the ratio between them survives a
+  // microphone swap or an input-gain change that would invalidate any dBFS
+  // constant.
+  it("is unchanged by input gain", () => {
+    const clip = burstsOver(-70, -50);
+    const base = dynamicRangeDb(clip, SAMPLE_RATE);
+
+    expect(dynamicRangeDb(atGain(clip, 0.125), SAMPLE_RATE)).toBeCloseTo(
+      base,
+      1,
+    );
+    expect(dynamicRangeDb(atGain(clip, 8), SAMPLE_RATE)).toBeCloseTo(base, 1);
+  });
+
+  it("reports no range for a flat clip", () => {
+    expect(dynamicRangeDb(constantAt(-52, 3000), SAMPLE_RATE)).toBeCloseTo(
+      0,
+      1,
+    );
+  });
+
+  it("reports no range for digital silence", () => {
+    expect(dynamicRangeDb(new Float32Array(3000), SAMPLE_RATE)).toBe(0);
+  });
+
+  // A clip this short yields a single window, so there is no floor to measure
+  // a peak against. Reporting 0 leaves the decision to the absolute threshold
+  // rather than inventing a range from one sample point.
+  it("reports no range for a clip shorter than two windows", () => {
+    expect(dynamicRangeDb(constantAt(-20, 200), SAMPLE_RATE)).toBe(0);
+  });
+
+  // A floor of exactly zero is a ratio with no answer. It means part of the
+  // device's output is dead, which is a fault rather than evidence of speech,
+  // so the range arm abstains and the absolute threshold decides alone.
+  it("abstains when the floor is digital silence", () => {
+    const samples = new Float32Array(3000);
+    samples.fill(10 ** (-70 / 20), 1200, 1800);
+
+    expect(dynamicRangeDb(samples, SAMPLE_RATE)).toBe(0);
+    expect(containsSpeech(samples, SAMPLE_RATE)).toBe(false);
+  });
+});
+
 describe("containsSpeech", () => {
   // Loudness bounds measured over this user's stored recordings: real dictation
   // never quieter than -31 dBFS, an accidental tap-and-release at -52 dBFS.
@@ -168,5 +272,28 @@ describe("containsSpeech", () => {
     expect(
       containsSpeech(new Float32Array(SAMPLE_RATE * 23), SAMPLE_RATE),
     ).toBe(false);
+  });
+
+  // The case the absolute threshold alone gets wrong: a microphone set too
+  // quiet puts real speech below -45 dBFS, and dictation disappears with no
+  // error. Its dynamic range gives it away as speech regardless of level.
+  it("passes speech recorded far below the absolute threshold", () => {
+    const clip = burstsOver(-70, -50);
+
+    expect(maxWindowLoudnessDbfs(clip, SAMPLE_RATE)).toBeLessThan(
+      SPEECH_THRESHOLD_DBFS,
+    );
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
+  });
+
+  // The case the range alone gets wrong, and the reason both arms are kept.
+  // Range measures variation, so a short utterance — uniformly loud, with no
+  // gaps to establish a floor — reads as flat. Measured on the real corpus:
+  // speech clips truncated to their first 600ms range between 0.2 and 18.1 dB.
+  it("passes a short loud utterance that has no floor to measure against", () => {
+    const clip = constantAt(-20, 200);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
   });
 });

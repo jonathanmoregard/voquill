@@ -20,7 +20,9 @@ import {
   unwrapNestedLlmResponse,
 } from "../utils/ai.utils";
 import {
-  maxWindowLoudnessDbfs,
+  hasNoSignal,
+  measureSpeech,
+  SPEECH_RANGE_THRESHOLD_DB,
   SPEECH_THRESHOLD_DBFS,
   SPEECH_WINDOW_MS,
 } from "../utils/audio.utils";
@@ -116,10 +118,17 @@ export const transcribeAudio = async ({
   // Measured on the raw capture, before the repo applies normalization gain:
   // amplifying a room-noise floor toward speech loudness is exactly what would
   // make a silent clip look transcribable.
-  const clipLoudnessDbfs = maxWindowLoudnessDbfs(samples, sampleRate);
-  if (clipLoudnessDbfs < SPEECH_THRESHOLD_DBFS) {
+  if (hasNoSignal(samples)) {
+    getLogger().warning(
+      "Skipping transcription: capture device produced no signal (every sample zero)",
+    );
+    return { rawTranscript: "", warnings: [], metadata };
+  }
+
+  const speech = measureSpeech(samples, sampleRate);
+  if (!speech.containsSpeech) {
     getLogger().info(
-      `Skipping transcription: no speech in clip (loudest ${SPEECH_WINDOW_MS}ms window ${clipLoudnessDbfs.toFixed(1)} dBFS, threshold ${SPEECH_THRESHOLD_DBFS} dBFS)`,
+      `Skipping transcription: no speech in clip (loudest ${SPEECH_WINDOW_MS}ms window ${speech.loudestWindowDbfs.toFixed(1)} dBFS, threshold ${SPEECH_THRESHOLD_DBFS} dBFS; dynamic range ${speech.rangeDb.toFixed(1)} dB, threshold ${SPEECH_RANGE_THRESHOLD_DB} dB)`,
     );
     return { rawTranscript: "", warnings: [], metadata };
   }
