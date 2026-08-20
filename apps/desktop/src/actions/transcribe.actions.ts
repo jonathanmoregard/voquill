@@ -122,13 +122,7 @@ export const transcribeAudio = async ({
     getLogger().warning(
       "Skipping transcription: capture device produced no signal (every sample zero)",
     );
-    return {
-      rawTranscript: "",
-      warnings: [
-        "No audio was captured. Check that the right microphone is selected and not muted.",
-      ],
-      metadata,
-    };
+    return { rawTranscript: "", warnings: [], metadata };
   }
 
   const speech = measureSpeech(samples, sampleRate);

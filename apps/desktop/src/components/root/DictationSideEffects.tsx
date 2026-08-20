@@ -363,17 +363,6 @@ export const DictationSideEffects = () => {
     );
     if (!rawTranscript) {
       getLogger().warning("stopRecordingRaw: no rawTranscript from finalize");
-      // A silent clip is a no-op the user intended, so it stays quiet. A
-      // warning here means something went wrong they cannot see — a dead
-      // capture device looks identical to a deliberate silent tap otherwise.
-      const blockingWarning = transcribeResult?.warnings?.[0];
-      if (blockingWarning) {
-        showToast({
-          message: blockingWarning,
-          toastType: "error",
-          duration: 8_000,
-        });
-      }
       return {
         shouldContinue: false,
       };
