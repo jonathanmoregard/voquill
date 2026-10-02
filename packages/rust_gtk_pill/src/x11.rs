@@ -118,18 +118,14 @@ pub(crate) fn setup_x11_window(window: &gtk::Window) {
                     && (cy as f64) >= phys_y && (cy as f64) < phys_y + phys_h
                 {
                     let wa = monitor.workarea();
-                    let wa_x = wa.x() as f64 * scale;
-                    let wa_y = wa.y() as f64 * scale;
-                    let wa_w = wa.width() as f64 * scale;
-                    let wa_h = wa.height() as f64 * scale;
+                    let workarea = PhysRect {
+                        x: wa.x() as f64 * scale,
+                        y: wa.y() as f64 * scale,
+                        w: wa.width() as f64 * scale,
+                        h: wa.height() as f64 * scale,
+                    };
                     let (alloc_w, alloc_h) = win_ref.size();
-                    let win_w = alloc_w as f64;
-                    let win_h = alloc_h as f64;
-                    let margin = MARGIN_BOTTOM as f64 * scale;
-                    return Some((
-                        (wa_x + (wa_w - win_w) / 2.0) as c_int,
-                        (wa_y + wa_h - win_h - margin) as c_int,
-                    ));
+                    return Some(pill_origin(workarea, (alloc_w, alloc_h), scale));
                 }
             }
             None
@@ -157,6 +153,84 @@ pub(crate) fn setup_x11_window(window: &gtk::Window) {
         }
         ControlFlow::Continue
     });
+}
+
+/// A monitor's work area in physical (X11 root) pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PhysRect {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) w: f64,
+    pub(crate) h: f64,
+}
+
+/// Where to put the pill window on X11: centred horizontally in the work
+/// area, its bottom edge `MARGIN_BOTTOM` above the work area's bottom edge.
+///
+/// X11 positions are physical pixels. GTK reports the window's allocated
+/// size in logical pixels, so it is multiplied by the monitor's scale factor
+/// here, the same as the work area already is. Without that, a scale of 2
+/// (a HiDPI panel with Xft.dpi 192) placed the window half its own width to
+/// the right of centre and its own height too low — the pill, drawn at the
+/// bottom of the window, ended up below the panel and off the screen.
+pub(crate) fn pill_origin(
+    workarea: PhysRect,
+    window_logical: (i32, i32),
+    scale: f64,
+) -> (c_int, c_int) {
+    let win_w = window_logical.0 as f64 * scale;
+    let win_h = window_logical.1 as f64 * scale;
+    let margin = MARGIN_BOTTOM as f64 * scale;
+    (
+        (workarea.x + (workarea.w - win_w) / 2.0) as c_int,
+        (workarea.y + workarea.h - win_h - margin) as c_int,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pill window is 600x362 logical; the work area is a 3408x2130 panel
+    /// minus a 94 px bottom panel at scale 2 (tuxedo), or 1920x1080 minus a
+    /// 47 px panel at scale 1 (dellan). In both cases the window must sit
+    /// centred and entirely inside the work area, `MARGIN_BOTTOM` above its
+    /// bottom edge, in physical pixels.
+    fn assert_inside(workarea: PhysRect, win: (i32, i32), scale: f64) {
+        let (x, y) = pill_origin(workarea, win, scale);
+        let phys_w = win.0 as f64 * scale;
+        let phys_h = win.1 as f64 * scale;
+        let margin = MARGIN_BOTTOM as f64 * scale;
+        assert_eq!(
+            x as f64,
+            (workarea.x + (workarea.w - phys_w) / 2.0).floor(),
+            "window is not centred (scale {scale})"
+        );
+        assert_eq!(
+            y as f64 + phys_h,
+            workarea.y + workarea.h - margin,
+            "window bottom edge is not {margin} px above the work area (scale {scale})"
+        );
+        assert!(
+            y as f64 + phys_h <= workarea.y + workarea.h,
+            "window extends below the work area (scale {scale})"
+        );
+    }
+
+    #[test]
+    fn scale_one_window_sits_inside_the_workarea() {
+        assert_inside(PhysRect { x: 0.0, y: 0.0, w: 1920.0, h: 1033.0 }, (600, 362), 1.0);
+    }
+
+    #[test]
+    fn scale_two_window_sits_inside_the_workarea() {
+        assert_inside(PhysRect { x: 0.0, y: 0.0, w: 3408.0, h: 2036.0 }, (600, 362), 2.0);
+    }
+
+    #[test]
+    fn second_monitor_offset_is_kept() {
+        assert_inside(PhysRect { x: 3408.0, y: 200.0, w: 2560.0, h: 1400.0 }, (200, 86), 2.0);
+    }
 }
 
 pub(crate) fn force_keyboard_focus(window: &gtk::Window) {
