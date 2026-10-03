@@ -23,7 +23,10 @@ import {
   resolveToolPermission,
   setToolAlwaysAllow,
 } from "../../actions/tool.actions";
-import { storeTranscription } from "../../actions/transcribe.actions";
+import {
+  pingTranscriptionPrepare,
+  storeTranscription,
+} from "../../actions/transcribe.actions";
 import { recordStreak } from "../../actions/user.actions";
 import {
   useHotkeyFire,
@@ -570,6 +573,7 @@ export const DictationSideEffects = () => {
 
       const preferredMicrophone = getMyPreferredMicrophone(state);
       const transcriptPrefs = getTranscriptionPrefs(state);
+      pingTranscriptionPrepare(transcriptPrefs);
       try {
         getLogger().info(`Transcription prefs: mode=${transcriptPrefs.mode}`);
         const session = createTranscriptionSession(transcriptPrefs);

@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import {
   Nullable,
   Transcription,
   TranscriptionAudioSnapshot,
 } from "@voquill/types";
-import { countWords, dedup } from "@voquill/utilities";
+import { countWords, dedup, getRec } from "@voquill/utilities";
 import dayjs from "dayjs";
 import {
   getGenerateTextRepo,
@@ -33,6 +34,10 @@ import {
 } from "../utils/language.utils";
 import { getLogger } from "../utils/log.utils";
 import {
+  PREPARE_PING_TIMEOUT_MS,
+  resolvePreparePingUrl,
+} from "../utils/prepare-ping.utils";
+import {
   buildLocalizedTranscriptionPrompt,
   buildPostProcessingPrompt,
   buildSystemPostProcessingTonePrompt,
@@ -50,9 +55,49 @@ import {
   getMyEffectiveUserId,
   getMyUserName,
   loadMyEffectiveDictationLanguage,
+  TranscriptionPrefs,
 } from "../utils/user.utils";
 import { showErrorSnackbar } from "./app.actions";
 import { addWordsToCurrentUser } from "./user.actions";
+
+/**
+ * Tells a local OpenAI-compatible STT router that audio is about to arrive so
+ * it can ramp up before the recording ends. Fire-and-forget: never awaited,
+ * never throws, and only sent to loopback endpoints.
+ */
+export const pingTranscriptionPrepare = (prefs: TranscriptionPrefs): void => {
+  const apiKeyRecord =
+    prefs.mode === "api"
+      ? getRec(getAppState().apiKeyById, prefs.apiKeyId)
+      : null;
+  const url = resolvePreparePingUrl({
+    mode: prefs.mode,
+    provider: prefs.mode === "api" ? prefs.provider : null,
+    baseUrl: apiKeyRecord?.baseUrl,
+    includeV1Path: apiKeyRecord?.includeV1Path,
+  });
+  if (!url) {
+    return;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PREPARE_PING_TIMEOUT_MS);
+  const startedAt = Date.now();
+  tauriFetch(url, {
+    method: "GET",
+    signal: controller.signal,
+    connectTimeout: PREPARE_PING_TIMEOUT_MS,
+  })
+    .then((response) => {
+      getLogger().verbose(
+        `Prepare ping ${url} -> ${response.status} in ${Date.now() - startedAt}ms`,
+      );
+    })
+    .catch((error) => {
+      getLogger().verbose(`Prepare ping ${url} failed: ${error}`);
+    })
+    .finally(() => clearTimeout(timer));
+};
 
 export type TranscribeAudioInput = {
   samples: AudioSamples;
