@@ -13,6 +13,7 @@ import {
   loadChatMessages,
   sendChatMessage,
 } from "../../actions/chat.actions";
+import { finalizeTranscriptionSession } from "../../actions/finalize-transcription.actions";
 import { refreshMember } from "../../actions/member.actions";
 import { dismissToast, showToast } from "../../actions/toast.actions";
 import {
@@ -356,9 +357,14 @@ export const DictationSideEffects = () => {
       currentAppToneId: appTarget?.toneId ?? null,
     });
 
-    const transcribeResult = await sessionRef.current?.finalize(audio, {
-      toneId,
-      a11yInfo,
+    const strategy = strategyRef.current;
+    const transcribeResult = await finalizeTranscriptionSession({
+      audio,
+      session: sessionRef.current,
+      options: {
+        toneId,
+        a11yInfo,
+      },
     });
     const rawTranscript = transcribeResult?.rawTranscript;
     getLogger().verbose(
@@ -372,7 +378,6 @@ export const DictationSideEffects = () => {
     }
 
     const session = sessionRef.current;
-    const strategy = strategyRef.current;
     if (!session || !strategy) {
       getLogger().warning(
         `stopRecordingRaw: refs cleared (session=${!!session}, strategy=${!!strategy})`,
@@ -410,7 +415,7 @@ export const DictationSideEffects = () => {
 
     if (strategy.shouldStoreTranscript()) {
       getLogger().verbose("Storing transcription");
-      storeTranscription({
+      await storeTranscription({
         audio,
         rawTranscript: rawTranscript ?? null,
         sanitizedTranscript,

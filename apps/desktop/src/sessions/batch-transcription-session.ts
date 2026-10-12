@@ -1,3 +1,4 @@
+import { retry } from "@voquill/utilities";
 import { showToast } from "../actions/toast.actions";
 import { transcribeAudio } from "../actions/transcribe.actions";
 import {
@@ -41,9 +42,14 @@ export class BatchTranscriptionSession implements TranscriptionSession {
       getLogger().info(
         `Batch transcription: ${payloadSamples.length} samples at ${rate}Hz`,
       );
-      const result = await transcribeAudio({
-        samples: payloadSamples,
-        sampleRate: rate,
+      const result = await retry({
+        fn: () =>
+          transcribeAudio({
+            samples: payloadSamples,
+            sampleRate: rate,
+          }),
+        retries: 2,
+        delay: 2_000,
       });
 
       getLogger().info(
