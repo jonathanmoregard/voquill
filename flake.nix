@@ -65,10 +65,11 @@
       gcc
       gnumake
       cmake
-      # whisper-rs uses bindgen; bindgen calls libclang at compile time.
-      # Only the lib is needed (LIBCLANG_PATH); we keep cc=gcc for compilation
-      # so cc-rs gets a wrapper that knows the glibc include paths.
-      llvmPackages.libclang
+      # whisper-rs uses bindgen; bindgenHook sets LIBCLANG_PATH and
+      # BINDGEN_EXTRA_CLANG_ARGS (glibc + clang include paths). Without the
+      # include paths bindgen fails and whisper-rs-sys silently falls back to
+      # bundled bindings that lack the Vulkan symbols.
+      rustPlatform.bindgenHook
       nodejs_22
       pnpm
     ];
@@ -83,7 +84,6 @@
       shellHook = ''
         export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPath "lib/pkgconfig" runtimeLibs}:''${PKG_CONFIG_PATH:-}"
         export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath runtimeLibs}:''${LD_LIBRARY_PATH:-}"
-        export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
         # Force gcc as the C/C++ compiler so cc-rs gets the Nix-wrapped one
         # that knows about glibc headers (bare clang from llvmPackages does not).
         export CC=${pkgs.gcc}/bin/gcc
