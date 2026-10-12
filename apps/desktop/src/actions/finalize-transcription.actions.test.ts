@@ -87,6 +87,17 @@ describe("finalizeTranscriptionSession", () => {
     );
   });
 
+  it("does not store a failed record for an empty recording", async () => {
+    const result = await finalizeTranscriptionSession({
+      audio: { samples: [], sampleRate: 48_000 },
+      session: new BatchTranscriptionSession(),
+    });
+
+    expect(result?.rawTranscript).toBeNull();
+    expect(transcribeAudioMock).not.toHaveBeenCalled();
+    expect(storeTranscriptionMock).not.toHaveBeenCalled();
+  });
+
   it("transcribes once and does not store a failed record on immediate success", async () => {
     transcribeAudioMock.mockResolvedValue(successfulTranscription);
 

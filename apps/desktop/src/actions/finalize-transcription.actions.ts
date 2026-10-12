@@ -21,7 +21,8 @@ export const finalizeTranscriptionSession = async ({
 > => {
   const result = await session?.finalize(audio, options);
 
-  if (result?.rawTranscript === null) {
+  const hasAudio = (audio.samples?.length ?? 0) > 0;
+  if (result?.rawTranscript === null && hasAudio) {
     await storeTranscription({
       audio,
       rawTranscript: null,
