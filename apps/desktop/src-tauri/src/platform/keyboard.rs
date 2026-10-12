@@ -50,16 +50,13 @@ impl KeyEventEmitter {
             log::debug!("event: {:?}", event.event_type);
         }
 
-        // Per-event DEBUG logging so hold/release incidents are diagnosable
-        // from normal logs. rdev exposes no synthetic/XTEST flag on its
-        // events, so injected events can't be distinguished here.
+        // Never log individual keys here: this listener sees every key typed
+        // system-wide, so a per-key log line is a keylogger.
         match event.event_type {
             EventType::KeyPress(key) => {
-                log::debug!("key press: {}", key_to_label(key));
                 self.update_pressed_keys(key, true);
             }
             EventType::KeyRelease(key) => {
-                log::debug!("key release: {}", key_to_label(key));
                 self.update_pressed_keys(key, false);
             }
             _ => {}
