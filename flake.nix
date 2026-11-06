@@ -74,6 +74,20 @@
       pnpm
     ];
   in {
+    packages.${system} =
+      let
+        gtk-pill = pkgs.callPackage ./nix/gtk-pill.nix { };
+        transcription-cpu = pkgs.callPackage ./nix/transcription.nix { gpu = false; };
+        transcription-gpu = pkgs.callPackage ./nix/transcription.nix { gpu = true; };
+        voquill = pkgs.callPackage ./nix/desktop.nix {
+          inherit gtk-pill transcription-cpu transcription-gpu;
+        };
+      in
+      {
+        inherit gtk-pill transcription-cpu transcription-gpu voquill;
+        default = voquill;
+      };
+
     devShells.${system}.default = pkgs.mkShell {
       packages = buildTools ++ runtimeLibs;
 
