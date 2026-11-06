@@ -10,15 +10,24 @@ case "$FLAVOR" in
     *) echo "Unknown flavor: $FLAVOR. Must be one of: dev, prod, local" >&2; exit 1 ;;
 esac
 
+# `local` is a Tauri packaging flavor only: tauri.local.conf.json just renames
+# the binary and identifier so the build can coexist with an installed Voquill.
+# It has no .env.local, and Vite rejects "local" as a mode name outright, so the
+# frontend builds as prod.
+case "$FLAVOR" in
+    local) VITE_MODE="prod" ;;
+    *)     VITE_MODE="$FLAVOR" ;;
+esac
+
 export FLAVOR
-export VITE_FLAVOR="$FLAVOR"
+export VITE_FLAVOR="$VITE_MODE"
 export VOQUILL_GOOGLE_CLIENT_ID="777461284594-dhgao2eek53ppl4o188ik2i9cigdcmnp.apps.googleusercontent.com"
 export VOQUILL_GOOGLE_CLIENT_SECRET="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"
 
 echo "Building desktop app (flavor=$FLAVOR)..."
 
 # Run the build - ignore exit code since bundling/signing may fail even though the exe builds fine
-pnpm --filter desktop run tauri -- build --no-bundle --config "src-tauri/tauri.${FLAVOR}.conf.json" || true
+pnpm --filter desktop run tauri build --no-bundle --config "src-tauri/tauri.${FLAVOR}.conf.json" || true
 
 # Find the built executable
 EXE=""
