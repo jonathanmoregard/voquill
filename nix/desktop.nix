@@ -42,7 +42,11 @@
   # prebuilt pieces
 , gtk-pill
 , transcription-cpu
-, transcription-gpu
+  # Omitted by default: the Vulkan backend registers no GPU devices, so the
+  # binary exits 1 on spawn (src/bin/gpu.rs) and the frontend falls back to the
+  # CPU sidecar anyway. Pass a derivation to put it back in the bundle.
+, transcription-gpu ? null
+, jq
 }:
 
 let
@@ -52,6 +56,10 @@ let
   # (tauri-codegen context.rs), and resource_dir() is built from that name, so
   # the installed layout below has to spell it exactly.
   productName = "Voquill (local)";
+
+  sidecars = [ { name = "rust-transcription-cpu"; drv = transcription-cpu; } ]
+    ++ lib.optional (transcription-gpu != null)
+      { name = "rust-transcription-gpu"; drv = transcription-gpu; };
 
   # Libraries the binary resolves by unqualified SONAME or dlopen, so they
   # must be on LD_LIBRARY_PATH at runtime rather than only in the RPATH.
@@ -116,6 +124,7 @@ stdenv.mkDerivation (finalAttrs: {
     pkg-config
     makeWrapper
     wrapGAppsHook3
+    jq
   ];
 
   buildInputs = dlopenLibs ++ [ glib-networking ];
@@ -147,10 +156,10 @@ stdenv.mkDerivation (finalAttrs: {
     # build runs. We supply prebuilt sidecars instead of letting the repo's
     # wrapper cargo-build them from their own separate lockfiles.
     mkdir -p apps/desktop/src-tauri/binaries
-    cp ${transcription-cpu}/bin/rust-transcription-cpu \
-      "apps/desktop/src-tauri/binaries/rust-transcription-cpu-${targetTriple}"
-    cp ${transcription-gpu}/bin/rust-transcription-gpu \
-      "apps/desktop/src-tauri/binaries/rust-transcription-gpu-${targetTriple}"
+    ${lib.concatMapStrings (s: ''
+      cp ${s.drv}/bin/${s.name} \
+        "apps/desktop/src-tauri/binaries/${s.name}-${targetTriple}"
+    '') sidecars}
 
     mkdir -p apps/desktop/src-tauri/resources
     cp ${gtk-pill}/bin/voquill-gtk-pill apps/desktop/src-tauri/resources/voquill-gtk-pill
@@ -171,13 +180,22 @@ stdenv.mkDerivation (finalAttrs: {
 
     cd apps/desktop
 
+    # Every externalBin entry must exist before the build runs, so the list has
+    # to name exactly the sidecars copied above rather than the base config's
+    # pair. --config is merge-patched over tauri.conf.json, and a patched array
+    # replaces the original wholesale rather than appending to it.
+    jq --argjson bins ${lib.escapeShellArg (builtins.toJSON (map (s: "binaries/${s.name}") sidecars))} \
+      '.bundle.externalBin = $bins' \
+      src-tauri/tauri.local.conf.json > src-tauri/tauri.nix.conf.json
+
     # Call the repo's own Tauri CLI directly rather than through the `tauri`
     # package script, which would re-build the sidecars we just supplied.
-    # tauri.local.conf.json sets productName/identifier so this build keeps the
-    # user's existing data directory (com.voquill.desktop.local).
+    # The generated config inherits productName/identifier from
+    # tauri.local.conf.json, so this build keeps the user's existing data
+    # directory (com.voquill.desktop.local).
     node_modules/.bin/tauri build \
       --no-bundle \
-      --config src-tauri/tauri.local.conf.json
+      --config src-tauri/tauri.nix.conf.json
 
     runHook postBuild
   '';

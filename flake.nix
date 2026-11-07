@@ -80,7 +80,7 @@
         transcription-cpu = pkgs.callPackage ./nix/transcription.nix { gpu = false; };
         transcription-gpu = pkgs.callPackage ./nix/transcription.nix { gpu = true; };
         voquill = pkgs.callPackage ./nix/desktop.nix {
-          inherit gtk-pill transcription-cpu transcription-gpu;
+          inherit gtk-pill transcription-cpu;
         };
       in
       {
