@@ -1,9 +1,12 @@
 { lib
 , stdenv
 , rustPlatform
-, fetchPnpmDeps
-, pnpmConfigHook
-, pnpm
+  # pnpm MAJOR is pinned: pnpm 12 stopped reading `pnpm.overrides` from
+  # package.json, so a frozen install against this repo's lockfile fails with
+  # ERR_PNPM_LOCKFILE_CONFIG_MISMATCH. package.json pins pnpm@10.x; keep the
+  # build on the same major until the repo migrates its settings to
+  # pnpm-workspace.yaml.
+, pnpm_10
 , nodejs_22
 , pkg-config
 , makeWrapper
@@ -98,10 +101,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = ../.;
 
-  pnpmDeps = fetchPnpmDeps {
+  pnpmDeps = pnpm_10.fetchDeps {
     inherit (finalAttrs) pname version src;
-    fetcherVersion = 2;
-    hash = "sha256-3MHukVVi2jKCtU7GMBQgow2Rcu0Ot+veHLK1c++fcuM=";
+    fetcherVersion = 5;
+    hash = "sha256-tpILtuGeC/prbfOMrrftz5fdiL4wlLQSgCmmSiWobsI=";
   };
 
   cargoDeps = rustPlatform.importCargoLock {
@@ -116,8 +119,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     nodejs_22
-    pnpm
-    pnpmConfigHook
+    pnpm_10
+    pnpm_10.configHook
     rustPlatform.cargoSetupHook
     cargo
     rustc
@@ -140,6 +143,12 @@ stdenv.mkDerivation (finalAttrs: {
     COREPACK_ENABLE_STRICT = "0";
     # webkit2gtk's DMA-BUF renderer crashes on some drivers.
     WEBKIT_DISABLE_DMABUF_RENDERER = "1";
+    # A `node_modules` carried in by src (any build from a local path: input
+    # picks up the dev tree) makes pnpm want to purge it, and pnpm refuses to
+    # purge without a TTY unless it believes it is running unattended:
+    # ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY. The build sandbox is exactly
+    # that, so say so.
+    CI = "true";
   };
 
   buildPhase = ''
