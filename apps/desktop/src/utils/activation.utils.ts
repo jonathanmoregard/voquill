@@ -1,11 +1,8 @@
-const TAP_THRESHOLD_MS = 500;
-
 export class ActivationController {
   private _isActive = false;
   private _isLocked = false;
   private ignoreNextActivation = false;
   private deactivateTimer: NodeJS.Timeout | null = null;
-  private pressTimestamp: number | null = null;
   private lastReleaseTimestamp: number | null = null;
   private toggleInProgress = false;
   private onActivateRef: (() => void) | null = null;
@@ -44,12 +41,11 @@ export class ActivationController {
     }
   }
 
-  private doActivate(timestamp: number): void {
+  private doActivate(): void {
     if (this._isActive) return;
 
     this.clearPendingDeactivation();
     this._isActive = true;
-    this.pressTimestamp = timestamp;
     this.onActivateRef?.();
   }
 
@@ -60,7 +56,6 @@ export class ActivationController {
     this._isActive = false;
     this._isLocked = false;
     this.ignoreNextActivation = false;
-    this.pressTimestamp = null;
 
     if (wasActive) {
       this.onDeactivateRef?.();
@@ -72,13 +67,10 @@ export class ActivationController {
       return;
     }
 
-    const now = Date.now();
-
     this.clearPendingDeactivation();
-    this.pressTimestamp = now;
 
     if (!this._isActive) {
-      this.doActivate(now);
+      this.doActivate();
     }
   }
 
@@ -88,20 +80,12 @@ export class ActivationController {
 
     if (!this._isActive) return;
 
-    const now = Date.now();
-    const pressedAt = this.pressTimestamp ?? now;
-    const elapsed = now - pressedAt;
-
-    if (elapsed < TAP_THRESHOLD_MS) {
-      if (this._isLocked) {
-        this.doDeactivate();
-      } else {
-        this._isLocked = true;
-      }
-    } else {
-      if (!this._isLocked) {
-        this.doDeactivate();
-      }
+    // Hold-to-talk only. A short press used to latch recording on until the
+    // next press, which strands an open mic when the latch is missed.
+    // `_isLocked` is now reachable only through `toggle()`, the explicit
+    // trigger path.
+    if (!this._isLocked) {
+      this.doDeactivate();
     }
   }
 
@@ -116,7 +100,7 @@ export class ActivationController {
       } else {
         this._isLocked = true;
         this.lastReleaseTimestamp = Date.now();
-        this.doActivate(Date.now());
+        this.doActivate();
       }
     } finally {
       this.toggleInProgress = false;
@@ -134,7 +118,6 @@ export class ActivationController {
     this._isActive = false;
     this._isLocked = false;
     this.ignoreNextActivation = false;
-    this.pressTimestamp = null;
     this.clearPendingDeactivation();
   }
 

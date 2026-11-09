@@ -7,6 +7,54 @@ import {
 
 const noop = () => undefined;
 
+describe("hold-only activation", () => {
+  const track = () => {
+    const calls = { activate: 0, deactivate: 0 };
+    const controller = new ActivationController(
+      () => {
+        calls.activate += 1;
+      },
+      () => {
+        calls.deactivate += 1;
+      },
+    );
+    return { controller, calls };
+  };
+
+  it("stops on release even when the press was far shorter than a tap", () => {
+    const { controller, calls } = track();
+
+    controller.handlePress();
+    controller.handleRelease();
+
+    expect(controller.isActive).toBe(false);
+    expect(calls).toEqual({ activate: 1, deactivate: 1 });
+  });
+
+  it("never latches, however many quick taps arrive", () => {
+    const { controller, calls } = track();
+
+    for (let i = 0; i < 3; i += 1) {
+      controller.handlePress();
+      controller.handleRelease();
+      expect(controller.isActive).toBe(false);
+    }
+
+    expect(calls).toEqual({ activate: 3, deactivate: 3 });
+  });
+
+  it("stays active for the whole hold", () => {
+    const { controller, calls } = track();
+
+    controller.handlePress();
+    expect(controller.isActive).toBe(true);
+    expect(calls.deactivate).toBe(0);
+
+    controller.handleRelease();
+    expect(controller.isActive).toBe(false);
+  });
+});
+
 describe("controller activity snapshots", () => {
   it("reports no newly active controller when nothing is active", () => {
     const controllers = [
