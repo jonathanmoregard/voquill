@@ -286,10 +286,24 @@ describe("containsSpeech", () => {
     expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
   });
 
-  // The case the range alone gets wrong, and the reason both arms are kept.
-  // Range measures variation, so a short utterance — uniformly loud, with no
-  // gaps to establish a floor — reads as flat. Measured on the real corpus:
-  // speech clips truncated to their first 600ms range between 0.2 and 18.1 dB.
+  // A single quiet word: every 300ms window overlaps it, so a floor measured
+  // over those windows sits within a few dB of the word and the clip read as
+  // flat. Measured on the real corpus: 0.8s excerpts around the loudest word
+  // of quiet-mic clips ranged 3.7 to 17 dB that way, 15 to 29 dB against the
+  // pauses resolved at FLOOR_FRAME_MS.
+  it("passes a short quiet word whose only floor is the pause around it", () => {
+    const clip = constantAt(-70, 800);
+    clip.fill(10 ** (-50 / 20), 200, 650);
+
+    expect(maxWindowLoudnessDbfs(clip, SAMPLE_RATE)).toBeLessThan(
+      SPEECH_THRESHOLD_DBFS,
+    );
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(20, 1);
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
+  });
+
+  // The case the range alone gets wrong, and the reason both arms are kept: a
+  // clip shorter than two windows has no range at all.
   it("passes a short loud utterance that has no floor to measure against", () => {
     const clip = constantAt(-20, 200);
 

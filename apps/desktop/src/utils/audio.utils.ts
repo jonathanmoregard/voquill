@@ -82,6 +82,13 @@ export const SPEECH_THRESHOLD_DBFS = -45;
  */
 export const SPEECH_RANGE_THRESHOLD_DB = 12;
 
+/**
+ * Length of the frames a clip's quiet floor is measured over. Far shorter than
+ * SPEECH_WINDOW_MS so that the pause either side of a single word — the only
+ * floor a short utterance has — is resolved rather than averaged into the word.
+ */
+export const FLOOR_FRAME_MS = 20;
+
 const toDbfs = (amplitude: number): number =>
   amplitude > 1e-9 ? 20 * Math.log10(amplitude) : Number.NEGATIVE_INFINITY;
 
@@ -131,12 +138,17 @@ const peakDbfsOf = (rmsValues: number[]): number => {
   return toDbfs(loudest);
 };
 
-const rangeDbOf = (rmsValues: number[]): number => {
-  if (rmsValues.length < 2) {
+const rangeDbOf = (
+  samples: AudioSamples,
+  sampleRate: number,
+  peakRmsValues: number[],
+): number => {
+  if (peakRmsValues.length < 2) {
     return 0;
   }
-  const sorted = [...rmsValues].sort((left, right) => left - right);
-  const loudest = sorted[sorted.length - 1] ?? 0;
+  const loudest = Math.max(...peakRmsValues);
+  const floorRmsValues = windowRmsValues(samples, sampleRate, FLOOR_FRAME_MS);
+  const sorted = floorRmsValues.sort((left, right) => left - right);
   const floor = sorted[Math.floor(sorted.length / 10)] ?? 0;
   return loudest > 0 && floor > 0 ? 20 * Math.log10(loudest / floor) : 0;
 };
@@ -154,12 +166,12 @@ export const maxWindowLoudnessDbfs = (
 
 /**
  * Spread between the clip's loudest window and its own quiet baseline (the
- * 10th-percentile window), in dB.
+ * 10th-percentile FLOOR_FRAME_MS frame), in dB.
  *
- * Speech is loud relative to the gaps between words; near-silence is flat
- * however the gain is set. Scaling a clip moves peak and baseline together, so
- * unlike SPEECH_THRESHOLD_DBFS this measure survives a microphone swap or an
- * input-gain change.
+ * Speech is loud relative to the gaps between and around words; near-silence
+ * is flat however the gain is set. Scaling a clip moves peak and baseline
+ * together, so unlike SPEECH_THRESHOLD_DBFS this measure survives a microphone
+ * swap or an input-gain change.
  *
  * Returns 0 — no evidence either way, leaving the decision to the absolute
  * threshold — when the clip is too short to hold two windows, or when its
@@ -168,8 +180,12 @@ export const maxWindowLoudnessDbfs = (
 export const dynamicRangeDb = (
   samples: AudioSamples,
   sampleRate: number,
-  windowMs: number = SPEECH_WINDOW_MS,
-): number => rangeDbOf(windowRmsValues(samples, sampleRate, windowMs));
+): number =>
+  rangeDbOf(
+    samples,
+    sampleRate,
+    windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS),
+  );
 
 /**
  * Whether the capture device produced no signal at all.
@@ -212,10 +228,9 @@ export type SpeechMeasurement = {
  *
  * Either measurement alone is enough, because each covers the other's blind
  * spot. The absolute threshold cannot see speech recorded through a mic set
- * too quiet. The range cannot see speech with no gaps to measure against — a
- * short utterance is uniformly loud, so it reads as flat, and a clip too short
- * to hold two windows has no range at all. Requiring both would drop clips
- * today's gate keeps; requiring either drops only what fails on every count.
+ * too quiet. The range cannot see speech in a clip too short to hold two
+ * windows. Requiring both would drop clips either one keeps; requiring either
+ * drops only what fails on every count.
  */
 export const measureSpeech = (
   samples: AudioSamples,
@@ -223,7 +238,7 @@ export const measureSpeech = (
 ): SpeechMeasurement => {
   const rmsValues = windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS);
   const loudestWindowDbfs = peakDbfsOf(rmsValues);
-  const rangeDb = rangeDbOf(rmsValues);
+  const rangeDb = rangeDbOf(samples, sampleRate, rmsValues);
 
   return {
     loudestWindowDbfs,
