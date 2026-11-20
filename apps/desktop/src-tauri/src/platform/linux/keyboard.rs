@@ -30,7 +30,26 @@ pub fn query_physically_held_keys() -> Option<Vec<String>> {
 
         let mut keymap = [0i8; 32];
         x11::xlib::XQueryKeymap(display, keymap.as_mut_ptr());
+
+        let (mut root, mut child) = (0, 0);
+        let (mut root_x, mut root_y, mut win_x, mut win_y) = (0, 0, 0, 0);
+        let mut button_mask = 0u32;
+        let pointer_found = x11::xlib::XQueryPointer(
+            display,
+            x11::xlib::XDefaultRootWindow(display),
+            &mut root,
+            &mut child,
+            &mut root_x,
+            &mut root_y,
+            &mut win_x,
+            &mut win_y,
+            &mut button_mask,
+        );
         x11::xlib::XCloseDisplay(display);
+
+        if pointer_found != 0 && button_mask & x11::xlib::Button2Mask != 0 {
+            labels.push(crate::platform::keyboard::MIDDLE_MOUSE_LABEL.to_string());
+        }
 
         for keycode in 8u32..256 {
             let byte = keymap[(keycode / 8) as usize] as u8;

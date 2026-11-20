@@ -128,6 +128,7 @@ export const getPrettyKeyName = (key: string): string => {
     return "Fn";
   }
 
+  if (key === "MiddleMouse") return "Middle mouse";
   if (key === "LeftArrow") return "←";
   if (key === "RightArrow") return "→";
   if (key === "UpArrow") return "↑";
