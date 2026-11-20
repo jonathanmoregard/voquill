@@ -77,17 +77,25 @@ export const SPEECH_THRESHOLD_DBFS = -45;
 /**
  * Dynamic range a clip must show to be considered speech, in dB.
  *
- * Measured over this user's recordings: speech spans 14.5 to 40.8 dB, a
- * tap-and-release with nothing said 3.6 dB. The threshold sits in that gap.
+ * Measured over this user's recordings: whole clips span 19.5 to 39.3 dB, and
+ * 0.8s excerpts around a single word no less than 16.6 dB. Room tone, with or
+ * without key clicks in it, stays under 1 dB. The threshold sits in that gap.
  */
 export const SPEECH_RANGE_THRESHOLD_DB = 12;
 
 /**
- * Length of the frames a clip's quiet floor is measured over. Far shorter than
+ * Length of the frames the dynamic range is measured over. Far shorter than
  * SPEECH_WINDOW_MS so that the pause either side of a single word — the only
  * floor a short utterance has — is resolved rather than averaged into the word.
  */
-export const FLOOR_FRAME_MS = 20;
+export const RANGE_FRAME_MS = 20;
+
+/**
+ * How long a level must hold to count as the clip's peak for the dynamic
+ * range. Longer than a key click, which would otherwise stand far above room
+ * tone at RANGE_FRAME_MS resolution; shorter than a spoken syllable.
+ */
+export const RANGE_SUSTAIN_MS = 50;
 
 const toDbfs = (amplitude: number): number =>
   amplitude > 1e-9 ? 20 * Math.log10(amplitude) : Number.NEGATIVE_INFINITY;
@@ -138,17 +146,32 @@ const peakDbfsOf = (rmsValues: number[]): number => {
   return toDbfs(loudest);
 };
 
+/** The loudest level the frames hold for `span` consecutive hops. */
+const sustainedPeakOf = (frameRmsValues: number[], span: number): number => {
+  let loudest = 0;
+  for (let start = 0; start + span <= frameRmsValues.length; start += 1) {
+    let held = Number.POSITIVE_INFINITY;
+    for (let index = start; index < start + span; index += 1) {
+      held = Math.min(held, frameRmsValues[index] ?? 0);
+    }
+    loudest = Math.max(loudest, held);
+  }
+  return loudest;
+};
+
 const rangeDbOf = (
   samples: AudioSamples,
   sampleRate: number,
-  peakRmsValues: number[],
+  speechWindowCount: number,
 ): number => {
-  if (peakRmsValues.length < 2) {
+  if (speechWindowCount < 2) {
     return 0;
   }
-  const loudest = Math.max(...peakRmsValues);
-  const floorRmsValues = windowRmsValues(samples, sampleRate, FLOOR_FRAME_MS);
-  const sorted = floorRmsValues.sort((left, right) => left - right);
+  const frameRmsValues = windowRmsValues(samples, sampleRate, RANGE_FRAME_MS);
+  const hopMs = RANGE_FRAME_MS / 2;
+  const span = Math.round((RANGE_SUSTAIN_MS - RANGE_FRAME_MS) / hopMs) + 1;
+  const loudest = sustainedPeakOf(frameRmsValues, span);
+  const sorted = [...frameRmsValues].sort((left, right) => left - right);
   const floor = sorted[Math.floor(sorted.length / 10)] ?? 0;
   return loudest > 0 && floor > 0 ? 20 * Math.log10(loudest / floor) : 0;
 };
@@ -165,8 +188,8 @@ export const maxWindowLoudnessDbfs = (
 ): number => peakDbfsOf(windowRmsValues(samples, sampleRate, windowMs));
 
 /**
- * Spread between the clip's loudest window and its own quiet baseline (the
- * 10th-percentile FLOOR_FRAME_MS frame), in dB.
+ * Spread between the loudest level the clip sustains for RANGE_SUSTAIN_MS and
+ * its own quiet baseline (the 10th-percentile RANGE_FRAME_MS frame), in dB.
  *
  * Speech is loud relative to the gaps between and around words; near-silence
  * is flat however the gain is set. Scaling a clip moves peak and baseline
@@ -184,7 +207,7 @@ export const dynamicRangeDb = (
   rangeDbOf(
     samples,
     sampleRate,
-    windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS),
+    windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS).length,
   );
 
 /**
@@ -238,7 +261,7 @@ export const measureSpeech = (
 ): SpeechMeasurement => {
   const rmsValues = windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS);
   const loudestWindowDbfs = peakDbfsOf(rmsValues);
-  const rangeDb = rangeDbOf(samples, sampleRate, rmsValues);
+  const rangeDb = rangeDbOf(samples, sampleRate, rmsValues.length);
 
   return {
     loudestWindowDbfs,

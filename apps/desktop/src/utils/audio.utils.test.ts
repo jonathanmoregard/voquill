@@ -182,11 +182,10 @@ describe("hasNoSignal", () => {
 
   // Modelled on the one real tap-and-release with nothing said: room tone at
   // -55.2 dBFS carrying a brief transient that lifts its loudest window to
-  // -51.6 dBFS. Reproducing the floor as room tone rather than as
-  // near-digital-silence matters: it is what makes the clip's dynamic range
-  // 3.8 dB, matching the real recording's 3.6 dB. So the clip is quiet AND
-  // live, and the two predicates must disagree about it — that disagreement is
-  // the whole point of having both.
+  // -51.6 dBFS. The transient is far shorter than RANGE_SUSTAIN_MS, so the
+  // clip has no dynamic range to speak of. It is quiet AND live, and the two
+  // predicates must disagree about it — that disagreement is the whole point
+  // of having both.
   it("separates a quiet but live capture from a dead one", () => {
     const samples = Array.from(constantAt(-55.2, 16_000));
     for (let index = 8_000; index < 8_008; index += 1) {
@@ -194,7 +193,7 @@ describe("hasNoSignal", () => {
     }
 
     expect(maxWindowLoudnessDbfs(samples, 16_000)).toBeCloseTo(-51.4, 0);
-    expect(dynamicRangeDb(samples, 16_000)).toBeCloseTo(3.8, 0);
+    expect(dynamicRangeDb(samples, 16_000)).toBeLessThan(1);
     expect(hasNoSignal(samples)).toBe(false);
     expect(containsSpeech(samples, 16_000)).toBe(false);
   });
@@ -234,11 +233,14 @@ describe("dynamicRangeDb", () => {
     expect(dynamicRangeDb(new Float32Array(3000), SAMPLE_RATE)).toBe(0);
   });
 
-  // A clip this short yields a single window, so there is no floor to measure
-  // a peak against. Reporting 0 leaves the decision to the absolute threshold
-  // rather than inventing a range from one sample point.
+  // A clip this short is a tap, not a dictation: its frames would show a range
+  // between the key click and room tone, so the range arm abstains and the
+  // absolute threshold decides alone.
   it("reports no range for a clip shorter than two windows", () => {
-    expect(dynamicRangeDb(constantAt(-20, 200), SAMPLE_RATE)).toBe(0);
+    const clip = constantAt(-70, 300);
+    clip.fill(10 ** (-50 / 20), 200);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
   });
 
   // A floor of exactly zero is a ratio with no answer. It means part of the
@@ -290,7 +292,7 @@ describe("containsSpeech", () => {
   // over those windows sits within a few dB of the word and the clip read as
   // flat. Measured on the real corpus: 0.8s excerpts around the loudest word
   // of quiet-mic clips ranged 3.7 to 17 dB that way, 15 to 29 dB against the
-  // pauses resolved at FLOOR_FRAME_MS.
+  // pauses resolved at RANGE_FRAME_MS.
   it("passes a short quiet word whose only floor is the pause around it", () => {
     const clip = constantAt(-70, 800);
     clip.fill(10 ** (-50 / 20), 200, 650);
@@ -302,10 +304,27 @@ describe("containsSpeech", () => {
     expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
   });
 
+  // A key click stands far above room tone at RANGE_FRAME_MS resolution but
+  // lasts a fraction of RANGE_SUSTAIN_MS, so a tap whose press and release
+  // clicks both land in the recording must still read as flat.
+  it("rejects a tap whose only peaks are key clicks", () => {
+    const clip = constantAt(-60, 450);
+    const click = 10 ** (-33 / 20);
+    clip.fill(click, 0, 15);
+    clip.fill(click, 435, 450);
+
+    expect(maxWindowLoudnessDbfs(clip, SAMPLE_RATE)).toBeLessThan(
+      SPEECH_THRESHOLD_DBFS,
+    );
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeLessThan(1);
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(false);
+  });
+
   // The case the range alone gets wrong, and the reason both arms are kept: a
   // clip shorter than two windows has no range at all.
-  it("passes a short loud utterance that has no floor to measure against", () => {
-    const clip = constantAt(-20, 200);
+  it("passes a short loud utterance too short to measure a range on", () => {
+    const clip = constantAt(-70, 300);
+    clip.fill(10 ** (-20 / 20), 100);
 
     expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
     expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
