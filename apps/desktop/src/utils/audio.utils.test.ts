@@ -215,6 +215,7 @@ describe("dynamicRangeDb", () => {
     const clip = burstsOver(-70, -50);
     const base = dynamicRangeDb(clip, SAMPLE_RATE);
 
+    expect(base).toBeCloseTo(20, 1);
     expect(dynamicRangeDb(atGain(clip, 0.125), SAMPLE_RATE)).toBeCloseTo(
       base,
       1,
@@ -237,21 +238,45 @@ describe("dynamicRangeDb", () => {
   // between the key click and room tone, so the range arm abstains and the
   // absolute threshold decides alone.
   it("reports no range for a clip shorter than two windows", () => {
-    const clip = constantAt(-70, 300);
-    clip.fill(10 ** (-50 / 20), 200);
+    const tooShort = constantAt(-70, 449);
+    tooShort.fill(10 ** (-50 / 20), 150, 400);
+    const twoWindows = constantAt(-70, 450);
+    twoWindows.fill(10 ** (-50 / 20), 150, 400);
 
-    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
+    expect(dynamicRangeDb(tooShort, SAMPLE_RATE)).toBe(0);
+    expect(dynamicRangeDb(twoWindows, SAMPLE_RATE)).toBeCloseTo(20, 1);
   });
 
-  // Exact zeros are a dead device, not the room's quiet, so they never set the
-  // floor. A clip whose only live part is flat has no range, and the
-  // absolute threshold decides alone.
-  it("does not measure a floor from digital silence", () => {
+  // The edge RANGE_SUSTAIN_MS draws: a burst too short to touch every frame of
+  // the span reads as flat, one long enough to fill it is measured in full.
+  it.each([
+    { burstMs: 45, expectedDb: 0 },
+    { burstMs: 100, expectedDb: 20 },
+  ])("measures a $burstMs ms burst as $expectedDb dB", (burst) => {
+    const clip = constantAt(-70, 1000);
+    clip.fill(10 ** (-50 / 20), 503, 503 + burst.burstMs);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(burst.expectedDb, 0);
+  });
+
+  // A floor of exactly zero is a ratio with no answer. It means part of the
+  // device's output is dead, which is a fault rather than evidence of speech,
+  // so the range arm abstains and the absolute threshold decides alone.
+  it("abstains when the floor is digital silence", () => {
     const samples = new Float32Array(3000);
     samples.fill(10 ** (-70 / 20), 1200, 1800);
 
     expect(dynamicRangeDb(samples, SAMPLE_RATE)).toBe(0);
     expect(containsSpeech(samples, SAMPLE_RATE)).toBe(false);
+  });
+
+  // The frame straddling the edge of a dead stretch holds a sliver of signal,
+  // far below the room's real level. It must not stand in for the floor.
+  it("does not take a floor from the edge of digital silence", () => {
+    const samples = constantAt(-55, 24_000);
+    samples.fill(0, 0, 20_131);
+
+    expect(containsSpeech(samples, 48_000)).toBe(false);
   });
 });
 
@@ -322,15 +347,6 @@ describe("containsSpeech", () => {
     );
     expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeLessThan(1);
     expect(containsSpeech(clip, SAMPLE_RATE)).toBe(false);
-  });
-
-  it("passes a short quiet word after a stretch of digital silence", () => {
-    const clip = constantAt(-70, 800);
-    clip.fill(0, 0, 100);
-    clip.fill(10 ** (-50 / 20), 200, 650);
-
-    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(20, 1);
-    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
   });
 
   // The case the range alone gets wrong, and the reason both arms are kept: a
