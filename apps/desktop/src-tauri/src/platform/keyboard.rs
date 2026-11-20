@@ -78,7 +78,7 @@ impl KeyEventEmitter {
     }
 
     fn reset(&self) {
-        // Re-query the real keyboard state where the platform allows it
+        // Re-query the real keyboard and pointer state where the platform allows it
         // instead of assuming nothing is held: a reset can race a fresh hold
         // (the stop pipeline hard-resets seconds after release), and wiping a
         // physically held key makes it unrecoverable until re-press.
@@ -148,7 +148,8 @@ pub fn sync_combos(combos: Vec<Vec<String>>) {
     }
 }
 
-/// Whether the global key listener currently sees any physically pressed keys.
+/// Whether the global key listener currently sees any physically held key or
+/// middle mouse button.
 /// Used to avoid synthesizing modifier releases while the user is mid-hold.
 pub fn any_keys_currently_pressed() -> bool {
     let state = listener_state()

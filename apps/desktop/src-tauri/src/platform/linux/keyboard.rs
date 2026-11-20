@@ -35,7 +35,7 @@ pub fn query_physically_held_keys() -> Option<Vec<String>> {
         let (mut root, mut child) = (0, 0);
         let (mut root_x, mut root_y, mut win_x, mut win_y) = (0, 0, 0, 0);
         let mut button_mask = 0u32;
-        let pointer_found = x11::xlib::XQueryPointer(
+        x11::xlib::XQueryPointer(
             display,
             x11::xlib::XDefaultRootWindow(display),
             &mut root,
@@ -48,7 +48,8 @@ pub fn query_physically_held_keys() -> Option<Vec<String>> {
         );
         x11::xlib::XCloseDisplay(display);
 
-        if pointer_found != 0 && button_mask & x11::xlib::Button2Mask != 0 {
+        // The button mask is filled in even when the pointer is on another screen.
+        if button_mask & x11::xlib::Button2Mask != 0 {
             labels.push(crate::platform::keyboard::MIDDLE_MOUSE_LABEL.to_string());
         }
 
