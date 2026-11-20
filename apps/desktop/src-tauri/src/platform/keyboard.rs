@@ -861,7 +861,7 @@ mod payload_tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn middle_mouse_travels_as_a_held_key() {
+    fn middle_mouse_travels_as_press_and_release() {
         use super::MIDDLE_MOUSE_LABEL;
 
         let press = payload_for_event(&event(EventType::ButtonPress(Button::Middle)), 7).unwrap();
@@ -873,6 +873,18 @@ mod payload_tests {
             payload_for_event(&event(EventType::ButtonRelease(Button::Middle)), 7).unwrap();
         assert!(matches!(release.kind, WireEventKind::Release));
         assert_eq!(release.key_label, MIDDLE_MOUSE_LABEL);
+        assert_eq!(release.scan_code, 7);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn middle_mouse_is_not_forwarded_off_linux() {
+        for event_type in [
+            EventType::ButtonPress(Button::Middle),
+            EventType::ButtonRelease(Button::Middle),
+        ] {
+            assert!(payload_for_event(&event(event_type), 0).is_none());
+        }
     }
 
     #[test]

@@ -12,8 +12,9 @@ pub fn run_listener_process() -> Result<(), String> {
 /// reset (e.g. a new dictation hold that started while the previous stop
 /// pipeline was finishing) isn't lost until re-press.
 ///
-/// Labels are derived from the same rdev keycode table the listener uses, so
-/// they match the labels the pressed-keys set is built from.
+/// Key labels are derived from the same rdev keycode table the listener uses,
+/// and a held middle button from the pointer's button mask, so they match the
+/// labels the pressed-keys set is built from.
 ///
 /// Returns `None` when the state can't be queried (Wayland, no X display).
 pub fn query_physically_held_keys() -> Option<Vec<String>> {
