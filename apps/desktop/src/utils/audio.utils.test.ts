@@ -259,10 +259,10 @@ describe("dynamicRangeDb", () => {
     expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(burst.expectedDb, 0);
   });
 
-  // A floor of exactly zero is a ratio with no answer. It means part of the
-  // device's output is dead, which is a fault rather than evidence of speech,
-  // so the range arm abstains and the absolute threshold decides alone.
-  it("abstains when the floor is digital silence", () => {
+  // Exact zeros mean part of the device's output is dead, which is a fault
+  // rather than evidence of speech. They are left out, so a clip whose only
+  // live part is flat has no range and the absolute threshold decides alone.
+  it("ignores digital silence around a flat live stretch", () => {
     const samples = new Float32Array(3000);
     samples.fill(10 ** (-70 / 20), 1200, 1800);
 
@@ -270,13 +270,31 @@ describe("dynamicRangeDb", () => {
     expect(containsSpeech(samples, SAMPLE_RATE)).toBe(false);
   });
 
-  // The frame straddling the edge of a dead stretch holds a sliver of signal,
-  // far below the room's real level. It must not stand in for the floor.
-  it("does not take a floor from the edge of digital silence", () => {
-    const samples = constantAt(-55, 24_000);
-    samples.fill(0, 0, 20_131);
+  // A frame straddling the edge of a dead stretch would hold a sliver of
+  // signal, far below the room's real level, and could land on the floor
+  // percentile whatever share of the clip the dead stretch takes.
+  it.each([
+    { length: 24_000, deadUntil: 20_131 },
+    { length: 48_000, deadUntil: 5_270 },
+    { length: 48_000, deadUntil: 5_278 },
+  ])(
+    "takes no floor from the edge of digital silence ($deadUntil of $length dead)",
+    (clip) => {
+      const samples = constantAt(-55, clip.length);
+      samples.fill(0, 0, clip.deadUntil);
 
-    expect(containsSpeech(samples, 48_000)).toBe(false);
+      expect(dynamicRangeDb(samples, 48_000)).toBeLessThan(1);
+      expect(containsSpeech(samples, 48_000)).toBe(false);
+    },
+  );
+
+  it("measures a quiet word after a stretch of digital silence", () => {
+    const clip = constantAt(-70, 800);
+    clip.fill(0, 0, 100);
+    clip.fill(10 ** (-50 / 20), 200, 650);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(20, 1);
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
   });
 });
 

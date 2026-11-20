@@ -150,6 +150,42 @@ const peakDbfsOf = (rmsValues: number[]): number => {
   return toDbfs(loudest);
 };
 
+/**
+ * RMS of each RANGE_FRAME_MS frame, half-overlapping, over the clip's live
+ * samples only. Exact zeros are a dead device, not the room's quiet: skipping
+ * them keeps any frame from straddling a dead stretch and reading far quieter
+ * than the room ever was.
+ */
+const liveFrameRmsValues = (
+  samples: AudioSamples,
+  sampleRate: number,
+): number[] => {
+  const hopSize = Math.max(1, Math.round((sampleRate * RANGE_FRAME_MS) / 2000));
+  const hopSumsOfSquares: number[] = [];
+  let sumOfSquares = 0;
+  let count = 0;
+  for (const sample of samples ?? []) {
+    if (sample === 0) {
+      continue;
+    }
+    sumOfSquares += sample * sample;
+    count += 1;
+    if (count === hopSize) {
+      hopSumsOfSquares.push(sumOfSquares);
+      sumOfSquares = 0;
+      count = 0;
+    }
+  }
+
+  const rmsValues: number[] = [];
+  for (let index = 0; index + 1 < hopSumsOfSquares.length; index += 1) {
+    const frameSum =
+      (hopSumsOfSquares[index] ?? 0) + (hopSumsOfSquares[index + 1] ?? 0);
+    rmsValues.push(Math.sqrt(frameSum / (2 * hopSize)));
+  }
+  return rmsValues;
+};
+
 /** The loudest level the frames hold for `span` consecutive hops. */
 const sustainedPeakOf = (frameRmsValues: number[], span: number): number => {
   let loudest = 0;
@@ -171,7 +207,7 @@ const rangeDbOf = (
   if (speechWindowCount < 2) {
     return 0;
   }
-  const frameRmsValues = windowRmsValues(samples, sampleRate, RANGE_FRAME_MS);
+  const frameRmsValues = liveFrameRmsValues(samples, sampleRate);
   const hopMs = RANGE_FRAME_MS / 2;
   const span = Math.round((RANGE_SUSTAIN_MS + RANGE_FRAME_MS) / hopMs) + 1;
   const loudest = sustainedPeakOf(frameRmsValues, span);
@@ -201,8 +237,9 @@ export const maxWindowLoudnessDbfs = (
  * swap or an input-gain change.
  *
  * Returns 0 — no evidence either way, leaving the decision to the absolute
- * threshold — when the clip is too short to hold two windows, or when its
- * baseline is digital silence and the ratio therefore has no answer.
+ * threshold — when the clip is too short to hold two windows, or when its live
+ * signal is flat. Exact zeros are a dead device rather than the room's quiet,
+ * so they are left out of the measurement entirely.
  */
 export const dynamicRangeDb = (
   samples: AudioSamples,
