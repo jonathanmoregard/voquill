@@ -94,6 +94,10 @@ export const RANGE_FRAME_MS = 20;
  * How long a level must hold to count as the clip's peak for the dynamic
  * range. Longer than a key click, which would otherwise stand far above room
  * tone at RANGE_FRAME_MS resolution; shorter than a spoken syllable.
+ *
+ * Frames overlap by half, so a burst touches more frames than it fills: the
+ * peak is taken over enough consecutive frames that every one of them lies
+ * inside a burst at least this long.
  */
 export const RANGE_SUSTAIN_MS = 50;
 
@@ -169,9 +173,13 @@ const rangeDbOf = (
   }
   const frameRmsValues = windowRmsValues(samples, sampleRate, RANGE_FRAME_MS);
   const hopMs = RANGE_FRAME_MS / 2;
-  const span = Math.round((RANGE_SUSTAIN_MS - RANGE_FRAME_MS) / hopMs) + 1;
+  const span = Math.round((RANGE_SUSTAIN_MS + RANGE_FRAME_MS) / hopMs) + 1;
   const loudest = sustainedPeakOf(frameRmsValues, span);
-  const sorted = [...frameRmsValues].sort((left, right) => left - right);
+  // Frames of exact zeros are a device fault, not the room's quiet: letting a
+  // stretch of them set the floor would leave the ratio with no answer.
+  const sorted = frameRmsValues
+    .filter((rms) => rms > 0)
+    .sort((left, right) => left - right);
   const floor = sorted[Math.floor(sorted.length / 10)] ?? 0;
   return loudest > 0 && floor > 0 ? 20 * Math.log10(loudest / floor) : 0;
 };
@@ -197,8 +205,8 @@ export const maxWindowLoudnessDbfs = (
  * swap or an input-gain change.
  *
  * Returns 0 — no evidence either way, leaving the decision to the absolute
- * threshold — when the clip is too short to hold two windows, or when its
- * baseline is digital silence and the ratio therefore has no answer.
+ * threshold — when the clip is too short to hold two windows, or when it holds
+ * nothing but digital silence and the ratio therefore has no answer.
  */
 export const dynamicRangeDb = (
   samples: AudioSamples,

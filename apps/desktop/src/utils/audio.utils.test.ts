@@ -243,10 +243,10 @@ describe("dynamicRangeDb", () => {
     expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
   });
 
-  // A floor of exactly zero is a ratio with no answer. It means part of the
-  // device's output is dead, which is a fault rather than evidence of speech,
-  // so the range arm abstains and the absolute threshold decides alone.
-  it("abstains when the floor is digital silence", () => {
+  // Exact zeros are a dead device, not the room's quiet, so they never set the
+  // floor. A clip whose only live part is flat has no range, and the
+  // absolute threshold decides alone.
+  it("does not measure a floor from digital silence", () => {
     const samples = new Float32Array(3000);
     samples.fill(10 ** (-70 / 20), 1200, 1800);
 
@@ -305,19 +305,32 @@ describe("containsSpeech", () => {
   });
 
   // A key click stands far above room tone at RANGE_FRAME_MS resolution but
-  // lasts a fraction of RANGE_SUSTAIN_MS, so a tap whose press and release
-  // clicks both land in the recording must still read as flat.
-  it("rejects a tap whose only peaks are key clicks", () => {
-    const clip = constantAt(-60, 450);
-    const click = 10 ** (-33 / 20);
-    clip.fill(click, 0, 15);
-    clip.fill(click, 435, 450);
+  // lasts a fraction of RANGE_SUSTAIN_MS, so a tap holding nothing else must
+  // still read as flat — wherever the click falls against the frame grid.
+  it.each([
+    { where: "at both edges", starts: [0, 435], length: 450 },
+    { where: "mid-clip, off the frame grid", starts: [499], length: 800 },
+    { where: "mid-clip, on the frame grid", starts: [200], length: 1000 },
+  ])("rejects a tap whose only peak is a key click $where", (tap) => {
+    const clip = constantAt(-60, tap.length);
+    for (const start of tap.starts) {
+      clip.fill(10 ** (-33 / 20), start, start + 15);
+    }
 
     expect(maxWindowLoudnessDbfs(clip, SAMPLE_RATE)).toBeLessThan(
       SPEECH_THRESHOLD_DBFS,
     );
     expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeLessThan(1);
     expect(containsSpeech(clip, SAMPLE_RATE)).toBe(false);
+  });
+
+  it("passes a short quiet word after a stretch of digital silence", () => {
+    const clip = constantAt(-70, 800);
+    clip.fill(0, 0, 100);
+    clip.fill(10 ** (-50 / 20), 200, 650);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(20, 1);
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
   });
 
   // The case the range alone gets wrong, and the reason both arms are kept: a
