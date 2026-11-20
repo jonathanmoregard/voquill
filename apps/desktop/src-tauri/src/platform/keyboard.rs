@@ -1,5 +1,7 @@
 use crate::domain::{KeysHeldPayload, EVT_KEYS_HELD};
-use rdev::{Button, Event, EventType, Key as RdevKey};
+#[cfg(target_os = "linux")]
+use rdev::Button;
+use rdev::{Event, EventType, Key as RdevKey};
 use std::collections::HashSet;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write};
@@ -446,7 +448,9 @@ fn pump_stream(stream: TcpStream, emitter: Arc<KeyEventEmitter>) -> Result<(), S
 }
 
 /// Label the middle mouse button travels under in the held-keys set, so it can
-/// be bound to a hotkey like any key.
+/// be bound to a hotkey like any key. Linux only: the macOS and Windows grab
+/// path sees the keyboard alone, so a binding there could never fire.
+#[cfg(target_os = "linux")]
 pub(crate) const MIDDLE_MOUSE_LABEL: &str = "MiddleMouse";
 
 fn payload_for_event(event: &Event, scan_code: u32) -> Option<KeyboardEventPayload> {
@@ -455,9 +459,11 @@ fn payload_for_event(event: &Event, scan_code: u32) -> Option<KeyboardEventPaylo
         EventType::KeyRelease(key) => {
             (WireEventKind::Release, key_to_label(key), key_raw_code(key))
         }
+        #[cfg(target_os = "linux")]
         EventType::ButtonPress(Button::Middle) => {
             (WireEventKind::Press, MIDDLE_MOUSE_LABEL.to_string(), None)
         }
+        #[cfg(target_os = "linux")]
         EventType::ButtonRelease(Button::Middle) => {
             (WireEventKind::Release, MIDDLE_MOUSE_LABEL.to_string(), None)
         }
@@ -834,7 +840,7 @@ mod tests {
 
 #[cfg(test)]
 mod payload_tests {
-    use super::{payload_for_event, WireEventKind, MIDDLE_MOUSE_LABEL};
+    use super::{payload_for_event, WireEventKind};
     use rdev::{Button, Event, EventType, Key};
     use std::time::SystemTime;
 
@@ -853,8 +859,11 @@ mod payload_tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn middle_mouse_travels_as_a_held_key() {
+        use super::MIDDLE_MOUSE_LABEL;
+
         let press = payload_for_event(&event(EventType::ButtonPress(Button::Middle)), 7).unwrap();
         assert!(matches!(press.kind, WireEventKind::Press));
         assert_eq!(press.key_label, MIDDLE_MOUSE_LABEL);
@@ -871,7 +880,12 @@ mod payload_tests {
         for event_type in [
             EventType::ButtonPress(Button::Left),
             EventType::ButtonRelease(Button::Right),
+            EventType::ButtonPress(Button::Unknown(8)),
             EventType::MouseMove { x: 1.0, y: 2.0 },
+            EventType::Wheel {
+                delta_x: 0,
+                delta_y: 1,
+            },
         ] {
             assert!(payload_for_event(&event(event_type), 0).is_none());
         }
@@ -882,5 +896,11 @@ mod payload_tests {
         let payload = payload_for_event(&event(EventType::KeyPress(Key::ControlRight)), 0).unwrap();
         assert_eq!(payload.key_label, "ControlRight");
         assert_eq!(payload.raw_code, None);
+
+        let unknown =
+            payload_for_event(&event(EventType::KeyRelease(Key::Unknown(248))), 0).unwrap();
+        assert!(matches!(unknown.kind, WireEventKind::Release));
+        assert_eq!(unknown.key_label, "Unknown(248)");
+        assert_eq!(unknown.raw_code, Some(248));
     }
 }
