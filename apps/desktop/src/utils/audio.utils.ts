@@ -99,54 +99,16 @@ export const resampleAudio = (
   return output;
 };
 
-const peakMagnitude = (samples: Float32Array, start = 0): number => {
-  let peak = 0;
-  for (let index = start; index < samples.length; index += 1) {
-    const magnitude = Math.abs(samples[index] ?? 0);
-    if (magnitude > peak) {
-      peak = magnitude;
-    }
-  }
-  return peak;
-};
-
-const applyGain = (samples: Float32Array, gain: number): Float32Array => {
-  const scaled = new Float32Array(samples.length);
-  for (let index = 0; index < samples.length; index += 1) {
-    scaled[index] = Math.max(-1, Math.min(1, (samples[index] ?? 0) * gain));
-  }
-  return scaled;
-};
-
 export const VAD_SAMPLE_RATE = 16_000;
-
-/**
- * The VAD scores a peak-normalised copy so a quiet microphone does not read as
- * silence; the provider still receives the original audio.
- */
-export const VAD_INPUT_PEAK = 0.5;
 
 export const VAD_SPEECH_PROBABILITY = 0.3;
 
 /**
  * Speech frames (32 ms each) a clip needs to count as speech. Measured on real
- * dictation: a single quiet word yields 14 or more, taps, clicks and room noise
- * none.
+ * dictation fed to the VAD at its recorded level: a single quiet word yields 11
+ * or more, taps, clicks and room noise none.
  */
 export const VAD_MIN_SPEECH_FRAMES = 3;
-
-export const prepareForVad = (
-  samples: AudioSamples,
-  sampleRate: number,
-): Float32Array => {
-  const resampled = resampleAudio(
-    ensureFloat32Array(samples ?? []),
-    sampleRate,
-    VAD_SAMPLE_RATE,
-  );
-  const peak = peakMagnitude(resampled);
-  return peak > 0 ? applyGain(resampled, VAD_INPUT_PEAK / peak) : resampled;
-};
 
 export type SpeechMeasurement = {
   speechFrames: number;
@@ -178,7 +140,13 @@ export const measureSpeech = async (
   sampleRate: number,
 ): Promise<SpeechMeasurement> => {
   const probabilities = await invoke<number[]>("detect_speech_probabilities", {
-    samples: Array.from(prepareForVad(samples, sampleRate)),
+    samples: Array.from(
+      resampleAudio(
+        ensureFloat32Array(samples ?? []),
+        sampleRate,
+        VAD_SAMPLE_RATE,
+      ),
+    ),
   });
   return assessSpeech(probabilities);
 };
@@ -241,7 +209,13 @@ export const peakNormalizeForTranscription = (
   // If the whole clip fits inside the excluded window, measure everything.
   const measureStart = excludedCount >= samples.length ? 0 : excludedCount;
 
-  const peak = peakMagnitude(samples, measureStart);
+  let peak = 0;
+  for (let index = measureStart; index < samples.length; index += 1) {
+    const magnitude = Math.abs(samples[index] ?? 0);
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
 
   // Digital silence: amplifying would only manufacture noise.
   if (peak < 1e-6) {
@@ -256,7 +230,11 @@ export const peakNormalizeForTranscription = (
     return samples;
   }
 
-  return applyGain(samples, gain);
+  const normalized = new Float32Array(samples.length);
+  for (let index = 0; index < samples.length; index += 1) {
+    normalized[index] = Math.max(-1, Math.min(1, (samples[index] ?? 0) * gain));
+  }
+  return normalized;
 };
 
 export type AudioClip =

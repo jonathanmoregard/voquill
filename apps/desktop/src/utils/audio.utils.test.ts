@@ -18,19 +18,14 @@ import {
   NORMALIZATION_MAX_GAIN,
   NORMALIZATION_TARGET_PEAK,
   peakNormalizeForTranscription,
-  prepareForVad,
   resampleAudio,
   TRAILING_SILENCE_MS,
-  VAD_INPUT_PEAK,
   VAD_MIN_SPEECH_FRAMES,
   VAD_SAMPLE_RATE,
   VAD_SPEECH_PROBABILITY,
 } from "./audio.utils";
 
 const SAMPLE_RATE = 1000;
-
-const peakOf = (samples: Float32Array): number =>
-  samples.reduce((peak, sample) => Math.max(peak, Math.abs(sample)), 0);
 
 const sine = (amplitude: number, sampleRate: number, seconds: number) =>
   Float32Array.from(
@@ -142,40 +137,6 @@ describe("resampleAudio", () => {
   });
 });
 
-describe("prepareForVad", () => {
-  it("resamples the clip to the VAD rate", () => {
-    const prepared = prepareForVad(sine(0.1, 48_000, 1), 48_000);
-    expect(prepared.length).toBe(VAD_SAMPLE_RATE);
-  });
-
-  it("raises a quiet clip to the VAD input peak", () => {
-    const prepared = prepareForVad(sine(0.005, 16_000, 1), 16_000);
-    expect(peakOf(prepared)).toBeCloseTo(VAD_INPUT_PEAK, 5);
-  });
-
-  it("lowers a loud clip to the VAD input peak", () => {
-    const prepared = prepareForVad(sine(0.95, 16_000, 1), 16_000);
-    expect(peakOf(prepared)).toBeCloseTo(VAD_INPUT_PEAK, 5);
-  });
-
-  it("leaves the caller's samples unchanged", () => {
-    const samples = sine(0.005, 16_000, 1);
-    const original = Float32Array.from(samples);
-    prepareForVad(samples, 16_000);
-    expect(samples).toEqual(original);
-  });
-
-  it("leaves digital silence silent", () => {
-    const prepared = prepareForVad(new Float32Array(16_000), 16_000);
-    expect(prepared.every((sample) => sample === 0)).toBe(true);
-  });
-
-  it("accepts plain number arrays", () => {
-    const prepared = prepareForVad(Array.from(sine(0.01, 16_000, 1)), 16_000);
-    expect(peakOf(prepared)).toBeCloseTo(VAD_INPUT_PEAK, 5);
-  });
-});
-
 describe("assessSpeech", () => {
   const framesAt = (probability: number, count: number) =>
     Array.from({ length: count }, () => probability);
@@ -220,14 +181,25 @@ describe("assessSpeech", () => {
 });
 
 describe("measureSpeech", () => {
-  it("runs the VAD on the prepared clip", async () => {
+  it("runs the VAD on the clip resampled to the VAD rate at its recorded level", async () => {
     vi.mocked(invoke).mockResolvedValueOnce([]);
     const samples = sine(0.01, 48_000, 1);
 
     await measureSpeech(samples, 48_000);
 
     expect(invoke).toHaveBeenCalledWith("detect_speech_probabilities", {
-      samples: Array.from(prepareForVad(samples, 48_000)),
+      samples: Array.from(resampleAudio(samples, 48_000, VAD_SAMPLE_RATE)),
+    });
+  });
+
+  it("accepts plain number arrays", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce([]);
+    const samples = Array.from(sine(0.01, 16_000, 1));
+
+    await measureSpeech(samples, 16_000);
+
+    expect(invoke).toHaveBeenCalledWith("detect_speech_probabilities", {
+      samples,
     });
   });
 
