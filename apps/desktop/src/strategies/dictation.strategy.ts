@@ -15,6 +15,7 @@ import type {
   HandleTranscriptResult,
   StrategyValidationError,
 } from "../types/strategy.types";
+import { MIDDLE_MOUSE_KEY } from "../utils/keyboard.utils";
 import { getLogger } from "../utils/log.utils";
 import { getMemberExceedsLimitByState } from "../utils/member.utils";
 import { routeTranscriptOutput } from "../utils/output-routing.utils";
@@ -35,6 +36,7 @@ export class DictationStrategy extends BaseStrategy {
   private streamedProcessedText = "";
   private pasteQueue: Promise<void> = Promise.resolve();
   private currentAppId: string | null = null;
+  private pastesIntoWindowUnderPointer = false;
 
   shouldStoreTranscript(): boolean {
     return true;
@@ -131,8 +133,23 @@ export class DictationStrategy extends BaseStrategy {
   }
 
   async onBeforeStart(): Promise<void> {
+    this.pastesIntoWindowUnderPointer =
+      getAppState().keysHeld.includes(MIDDLE_MOUSE_KEY);
     // load asyncronously, non-blocking
     this.loadAppTarget();
+  }
+
+  async onBeforeStop(): Promise<void> {
+    if (!this.pastesIntoWindowUnderPointer) {
+      return;
+    }
+    try {
+      await invoke<boolean>("focus_window_under_pointer");
+    } catch (error) {
+      getLogger().warning(
+        `Failed to focus the window under the pointer: ${error}`,
+      );
+    }
   }
 
   async setPhase(phase: OverlayPhase): Promise<void> {

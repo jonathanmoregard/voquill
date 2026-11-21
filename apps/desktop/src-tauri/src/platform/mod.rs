@@ -135,6 +135,17 @@ pub fn find_pid_by_window_title(title_substring: &str) -> Option<i32> {
     }
 }
 
+pub fn focus_window_under_pointer() -> Result<bool, String> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::window::focus_window_under_pointer()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(false)
+    }
+}
+
 pub mod app_info;
 
 pub mod audio;

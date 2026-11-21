@@ -1499,6 +1499,14 @@ pub fn surface_main_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn focus_window_under_pointer() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(crate::platform::focus_window_under_pointer)
+        .await
+        .map_err(|err| format!("focus task join error: {err}"))?
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn set_pill_window_size(
     app: AppHandle,
     size: crate::domain::PillWindowSize,
