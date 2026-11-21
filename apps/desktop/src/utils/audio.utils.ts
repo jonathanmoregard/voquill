@@ -57,121 +57,6 @@ export const normalizeSamples = (samples: AudioSamples): number[] =>
   Array.isArray(samples) ? samples : Array.from(samples ?? []);
 
 /**
- * Length of the window the speech gate measures loudness over. Long enough that
- * a keyboard click or chime transient is smeared well below speech level, short
- * enough that a single spoken word still fills it.
- */
-export const SPEECH_WINDOW_MS = 300;
-
-/**
- * Loudness a clip must reach in some window to be considered speech, in dBFS.
- * Measured against this user's own recordings: real dictation peaks at -31 dBFS
- * or louder by this metric, an accidental tap-and-release at -52 dBFS. The
- * threshold sits in that gap, closer to the noise side so quiet speech survives.
- *
- * An absolute level is only ever calibrated to one microphone at one input
- * gain, which is why SPEECH_RANGE_THRESHOLD_DB exists alongside it.
- */
-export const SPEECH_THRESHOLD_DBFS = -45;
-
-/**
- * Dynamic range a clip must show to be considered speech, in dB.
- *
- * Measured over this user's recordings: speech spans 14.5 to 40.8 dB, a
- * tap-and-release with nothing said 3.6 dB. The threshold sits in that gap.
- */
-export const SPEECH_RANGE_THRESHOLD_DB = 12;
-
-const toDbfs = (amplitude: number): number =>
-  amplitude > 1e-9 ? 20 * Math.log10(amplitude) : Number.NEGATIVE_INFINITY;
-
-/**
- * RMS of each window in the clip, one per hop.
- *
- * Windowed rather than whole-clip: a clip's overall RMS is diluted by its
- * pauses, so a minute of recording holding a single spoken word measures as
- * silence.
- */
-const windowRmsValues = (
-  samples: AudioSamples,
-  sampleRate: number,
-  windowMs: number,
-): number[] => {
-  const values = samples ?? [];
-  const length = values.length;
-  if (length === 0 || sampleRate <= 0) {
-    return [];
-  }
-
-  const windowSize = Math.max(
-    1,
-    Math.min(length, Math.round((sampleRate * windowMs) / 1000)),
-  );
-  const hop = Math.max(1, Math.floor(windowSize / 2));
-
-  const rmsValues: number[] = [];
-  for (let start = 0; start + windowSize <= length; start += hop) {
-    let sumOfSquares = 0;
-    for (let index = start; index < start + windowSize; index += 1) {
-      const sample = values[index] ?? 0;
-      sumOfSquares += sample * sample;
-    }
-    rmsValues.push(Math.sqrt(sumOfSquares / windowSize));
-  }
-  return rmsValues;
-};
-
-const peakDbfsOf = (rmsValues: number[]): number => {
-  let loudest = 0;
-  for (const rms of rmsValues) {
-    if (rms > loudest) {
-      loudest = rms;
-    }
-  }
-  return toDbfs(loudest);
-};
-
-const rangeDbOf = (rmsValues: number[]): number => {
-  if (rmsValues.length < 2) {
-    return 0;
-  }
-  const sorted = [...rmsValues].sort((left, right) => left - right);
-  const loudest = sorted[sorted.length - 1] ?? 0;
-  const floor = sorted[Math.floor(sorted.length / 10)] ?? 0;
-  return loudest > 0 && floor > 0 ? 20 * Math.log10(loudest / floor) : 0;
-};
-
-/**
- * Loudness of the loudest window in the clip, in dBFS. Answers the question
- * that matters for an absolute threshold — whether there is anything loud
- * anywhere in the clip.
- */
-export const maxWindowLoudnessDbfs = (
-  samples: AudioSamples,
-  sampleRate: number,
-  windowMs: number = SPEECH_WINDOW_MS,
-): number => peakDbfsOf(windowRmsValues(samples, sampleRate, windowMs));
-
-/**
- * Spread between the clip's loudest window and its own quiet baseline (the
- * 10th-percentile window), in dB.
- *
- * Speech is loud relative to the gaps between words; near-silence is flat
- * however the gain is set. Scaling a clip moves peak and baseline together, so
- * unlike SPEECH_THRESHOLD_DBFS this measure survives a microphone swap or an
- * input-gain change.
- *
- * Returns 0 — no evidence either way, leaving the decision to the absolute
- * threshold — when the clip is too short to hold two windows, or when its
- * baseline is digital silence and the ratio therefore has no answer.
- */
-export const dynamicRangeDb = (
-  samples: AudioSamples,
-  sampleRate: number,
-  windowMs: number = SPEECH_WINDOW_MS,
-): number => rangeDbOf(windowRmsValues(samples, sampleRate, windowMs));
-
-/**
  * Whether the capture device produced no signal at all.
  *
  * A working microphone always dithers: across the recorded clips, even a
@@ -194,50 +79,109 @@ export const hasNoSignal = (samples: AudioSamples): boolean => {
   return true;
 };
 
+export const resampleAudio = (
+  input: Float32Array,
+  inputRate: number,
+  outputRate: number,
+): Float32Array => {
+  if (inputRate === outputRate) return input;
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.ceil(input.length / ratio);
+  const output = new Float32Array(outputLength);
+  for (let i = 0; i < outputLength; i++) {
+    const srcIndex = i * ratio;
+    const srcFloor = Math.floor(srcIndex);
+    const frac = srcIndex - srcFloor;
+    const a = input[srcFloor] ?? 0;
+    const b = input[Math.min(srcFloor + 1, input.length - 1)] ?? 0;
+    output[i] = a + frac * (b - a);
+  }
+  return output;
+};
+
+const peakMagnitude = (samples: Float32Array, start = 0): number => {
+  let peak = 0;
+  for (let index = start; index < samples.length; index += 1) {
+    const magnitude = Math.abs(samples[index] ?? 0);
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+  return peak;
+};
+
+const applyGain = (samples: Float32Array, gain: number): Float32Array => {
+  const scaled = new Float32Array(samples.length);
+  for (let index = 0; index < samples.length; index += 1) {
+    scaled[index] = Math.max(-1, Math.min(1, (samples[index] ?? 0) * gain));
+  }
+  return scaled;
+};
+
+export const VAD_SAMPLE_RATE = 16_000;
+
+/**
+ * The VAD scores a peak-normalised copy so a quiet microphone does not read as
+ * silence; the provider still receives the original audio.
+ */
+export const VAD_INPUT_PEAK = 0.5;
+
+export const VAD_SPEECH_PROBABILITY = 0.3;
+
+/**
+ * Speech frames (32 ms each) a clip needs to count as speech. Measured on real
+ * dictation: a single quiet word yields 14 or more, taps, clicks and room noise
+ * none.
+ */
+export const VAD_MIN_SPEECH_FRAMES = 3;
+
+export const prepareForVad = (
+  samples: AudioSamples,
+  sampleRate: number,
+): Float32Array => {
+  const resampled = resampleAudio(
+    ensureFloat32Array(samples ?? []),
+    sampleRate,
+    VAD_SAMPLE_RATE,
+  );
+  const peak = peakMagnitude(resampled);
+  return peak > 0 ? applyGain(resampled, VAD_INPUT_PEAK / peak) : resampled;
+};
+
 export type SpeechMeasurement = {
-  loudestWindowDbfs: number;
-  rangeDb: number;
+  speechFrames: number;
+  maxProbability: number;
   containsSpeech: boolean;
 };
 
-/**
- * Whether a clip is worth transcribing, and the two measurements behind that
- * verdict.
- *
- * Transcription models have no "silence" output class: handed a clip with no
- * speech they emit their highest-prior continuation, which — when a glossary
- * prompt is supplied — is frequently the prompt itself. Not calling the model
- * is the only reliable fix, so the decision is made here, on the raw capture
- * before any normalization gain is applied.
- *
- * Either measurement alone is enough, because each covers the other's blind
- * spot. The absolute threshold cannot see speech recorded through a mic set
- * too quiet. The range cannot see speech with no gaps to measure against — a
- * short utterance is uniformly loud, so it reads as flat, and a clip too short
- * to hold two windows has no range at all. Requiring both would drop clips
- * today's gate keeps; requiring either drops only what fails on every count.
- */
-export const measureSpeech = (
-  samples: AudioSamples,
-  sampleRate: number,
-): SpeechMeasurement => {
-  const rmsValues = windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS);
-  const loudestWindowDbfs = peakDbfsOf(rmsValues);
-  const rangeDb = rangeDbOf(rmsValues);
-
+export const assessSpeech = (probabilities: number[]): SpeechMeasurement => {
+  const speechFrames = probabilities.filter(
+    (probability) => probability >= VAD_SPEECH_PROBABILITY,
+  ).length;
   return {
-    loudestWindowDbfs,
-    rangeDb,
-    containsSpeech:
-      loudestWindowDbfs >= SPEECH_THRESHOLD_DBFS ||
-      rangeDb >= SPEECH_RANGE_THRESHOLD_DB,
+    speechFrames,
+    maxProbability: probabilities.reduce(
+      (max, probability) => Math.max(max, probability),
+      0,
+    ),
+    containsSpeech: speechFrames >= VAD_MIN_SPEECH_FRAMES,
   };
 };
 
-export const containsSpeech = (
+/**
+ * Transcription models have no "silence" output class: handed a clip with no
+ * speech they emit their highest-prior continuation, often the glossary
+ * prompt itself. Not calling the model is the only reliable fix.
+ */
+export const measureSpeech = async (
   samples: AudioSamples,
   sampleRate: number,
-): boolean => measureSpeech(samples, sampleRate).containsSpeech;
+): Promise<SpeechMeasurement> => {
+  const probabilities = await invoke<number[]>("detect_speech_probabilities", {
+    samples: Array.from(prepareForVad(samples, sampleRate)),
+  });
+  return assessSpeech(probabilities);
+};
 
 /**
  * Trailing silence appended to a clip before transcription so speech that
@@ -297,13 +241,7 @@ export const peakNormalizeForTranscription = (
   // If the whole clip fits inside the excluded window, measure everything.
   const measureStart = excludedCount >= samples.length ? 0 : excludedCount;
 
-  let peak = 0;
-  for (let index = measureStart; index < samples.length; index += 1) {
-    const magnitude = Math.abs(samples[index] ?? 0);
-    if (magnitude > peak) {
-      peak = magnitude;
-    }
-  }
+  const peak = peakMagnitude(samples, measureStart);
 
   // Digital silence: amplifying would only manufacture noise.
   if (peak < 1e-6) {
@@ -318,11 +256,7 @@ export const peakNormalizeForTranscription = (
     return samples;
   }
 
-  const normalized = new Float32Array(samples.length);
-  for (let index = 0; index < samples.length; index += 1) {
-    normalized[index] = Math.max(-1, Math.min(1, (samples[index] ?? 0) * gain));
-  }
-  return normalized;
+  return applyGain(samples, gain);
 };
 
 export type AudioClip =

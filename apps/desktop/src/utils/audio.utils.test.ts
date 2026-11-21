@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -11,36 +12,32 @@ vi.mock("./user.utils", () => ({ getMyUser: () => null }));
 
 import {
   appendTrailingSilence,
-  containsSpeech,
-  dynamicRangeDb,
+  assessSpeech,
   hasNoSignal,
-  maxWindowLoudnessDbfs,
+  measureSpeech,
   NORMALIZATION_MAX_GAIN,
   NORMALIZATION_TARGET_PEAK,
   peakNormalizeForTranscription,
-  SPEECH_THRESHOLD_DBFS,
+  prepareForVad,
+  resampleAudio,
   TRAILING_SILENCE_MS,
+  VAD_INPUT_PEAK,
+  VAD_MIN_SPEECH_FRAMES,
+  VAD_SAMPLE_RATE,
+  VAD_SPEECH_PROBABILITY,
 } from "./audio.utils";
 
 const SAMPLE_RATE = 1000;
 
-/** Constant-amplitude tone at a given loudness, since RMS == amplitude for it. */
-const constantAt = (dbfs: number, sampleCount: number): Float32Array =>
-  new Float32Array(sampleCount).fill(10 ** (dbfs / 20));
+const peakOf = (samples: Float32Array): number =>
+  samples.reduce((peak, sample) => Math.max(peak, Math.abs(sample)), 0);
 
-/** Rescales a clip, as changing the microphone's input gain would. */
-const atGain = (samples: Float32Array, gain: number): Float32Array =>
-  samples.map((sample) => sample * gain);
-
-/**
- * The shape of speech: bursts standing well above the clip's own floor, with
- * enough quiet windows either side to establish that floor.
- */
-const burstsOver = (floorDbfs: number, burstDbfs: number): Float32Array => {
-  const samples = constantAt(floorDbfs, 3000);
-  samples.fill(10 ** (burstDbfs / 20), 1200, 1800);
-  return samples;
-};
+const sine = (amplitude: number, sampleRate: number, seconds: number) =>
+  Float32Array.from(
+    { length: sampleRate * seconds },
+    (_, index) =>
+      amplitude * Math.sin((2 * Math.PI * 220 * index) / sampleRate),
+  );
 
 describe("appendTrailingSilence", () => {
   it("appends the configured amount of silence", () => {
@@ -110,61 +107,6 @@ describe("peakNormalizeForTranscription", () => {
   });
 });
 
-describe("maxWindowLoudnessDbfs", () => {
-  it("reports the loudness of a constant clip", () => {
-    expect(
-      maxWindowLoudnessDbfs(constantAt(-20, 5000), SAMPLE_RATE),
-    ).toBeCloseTo(-20, 1);
-  });
-
-  it("reports the loudest window, not the clip average", () => {
-    // 10s of near-silence with a single loud second buried in the middle: the
-    // clip average is far below the gate, the loud window is far above it.
-    const samples = constantAt(-60, SAMPLE_RATE * 10);
-    samples.set(constantAt(-25, SAMPLE_RATE), SAMPLE_RATE * 5);
-
-    expect(maxWindowLoudnessDbfs(samples, SAMPLE_RATE)).toBeCloseTo(-25, 1);
-    expect(containsSpeech(samples, SAMPLE_RATE)).toBe(true);
-  });
-
-  it("is not fooled by a brief transient in a room-noise clip", () => {
-    // The shape of a real tap-and-release recording: a noise floor around
-    // -54 dBFS with a 1ms click peaking 29dB above it. Peak loudness would
-    // clear the gate; the windowed measure spreads the click's energy and
-    // leaves the clip where it belongs. A transient sustained for a whole
-    // window is a different matter — by energy alone it is a short word.
-    const samples = constantAt(-54, SAMPLE_RATE * 2);
-    samples.fill(0.05, 500, 501);
-
-    expect(maxWindowLoudnessDbfs(samples, SAMPLE_RATE)).toBeLessThan(
-      SPEECH_THRESHOLD_DBFS,
-    );
-    expect(containsSpeech(samples, SAMPLE_RATE)).toBe(false);
-  });
-
-  it("measures the whole clip when it is shorter than one window", () => {
-    expect(maxWindowLoudnessDbfs(constantAt(-20, 50), SAMPLE_RATE)).toBeCloseTo(
-      -20,
-      1,
-    );
-  });
-
-  it("reports negative infinity for empty and digitally silent clips", () => {
-    expect(maxWindowLoudnessDbfs(new Float32Array(0), SAMPLE_RATE)).toBe(
-      Number.NEGATIVE_INFINITY,
-    );
-    expect(maxWindowLoudnessDbfs(new Float32Array(5000), SAMPLE_RATE)).toBe(
-      Number.NEGATIVE_INFINITY,
-    );
-  });
-
-  it("accepts plain number arrays", () => {
-    expect(
-      maxWindowLoudnessDbfs(Array.from(constantAt(-20, 5000)), SAMPLE_RATE),
-    ).toBeCloseTo(-20, 1);
-  });
-});
-
 describe("hasNoSignal", () => {
   it("reports no signal when every sample is exactly zero", () => {
     expect(hasNoSignal(Array.from({ length: 16_000 }, () => 0))).toBe(true);
@@ -179,121 +121,130 @@ describe("hasNoSignal", () => {
     samples[9_999] = 1 / 32_768;
     expect(hasNoSignal(samples)).toBe(false);
   });
+});
 
-  // Modelled on the one real tap-and-release with nothing said: room tone at
-  // -55.2 dBFS carrying a brief transient that lifts its loudest window to
-  // -51.6 dBFS. Reproducing the floor as room tone rather than as
-  // near-digital-silence matters: it is what makes the clip's dynamic range
-  // 3.8 dB, matching the real recording's 3.6 dB. So the clip is quiet AND
-  // live, and the two predicates must disagree about it — that disagreement is
-  // the whole point of having both.
-  it("separates a quiet but live capture from a dead one", () => {
-    const samples = Array.from(constantAt(-55.2, 16_000));
-    for (let index = 8_000; index < 8_008; index += 1) {
-      samples[index] = 0.05;
-    }
+describe("resampleAudio", () => {
+  it("returns the input untouched when the rates match", () => {
+    const samples = new Float32Array([0.1, 0.2, 0.3]);
+    expect(resampleAudio(samples, 16_000, 16_000)).toBe(samples);
+  });
 
-    expect(maxWindowLoudnessDbfs(samples, 16_000)).toBeCloseTo(-51.4, 0);
-    expect(dynamicRangeDb(samples, 16_000)).toBeCloseTo(3.8, 0);
-    expect(hasNoSignal(samples)).toBe(false);
-    expect(containsSpeech(samples, 16_000)).toBe(false);
+  it("downsamples to the output rate's length", () => {
+    const samples = new Float32Array(48_000);
+    expect(resampleAudio(samples, 48_000, 16_000).length).toBe(16_000);
+  });
+
+  it("interpolates between neighbouring samples when upsampling", () => {
+    const samples = new Float32Array([0, 1, 0]);
+    expect(Array.from(resampleAudio(samples, 1, 2))).toEqual([
+      0, 0.5, 1, 0.5, 0, 0,
+    ]);
   });
 });
 
-describe("dynamicRangeDb", () => {
-  it("measures a clip's peak against its own floor", () => {
-    expect(dynamicRangeDb(burstsOver(-70, -50), SAMPLE_RATE)).toBeCloseTo(
-      20,
-      1,
-    );
+describe("prepareForVad", () => {
+  it("resamples the clip to the VAD rate", () => {
+    const prepared = prepareForVad(sine(0.1, 48_000, 1), 48_000);
+    expect(prepared.length).toBe(VAD_SAMPLE_RATE);
   });
 
-  // The property the absolute threshold does not have. Scaling a clip moves
-  // its peak and its floor together, so the ratio between them survives a
-  // microphone swap or an input-gain change that would invalidate any dBFS
-  // constant.
-  it("is unchanged by input gain", () => {
-    const clip = burstsOver(-70, -50);
-    const base = dynamicRangeDb(clip, SAMPLE_RATE);
-
-    expect(dynamicRangeDb(atGain(clip, 0.125), SAMPLE_RATE)).toBeCloseTo(
-      base,
-      1,
-    );
-    expect(dynamicRangeDb(atGain(clip, 8), SAMPLE_RATE)).toBeCloseTo(base, 1);
+  it("raises a quiet clip to the VAD input peak", () => {
+    const prepared = prepareForVad(sine(0.005, 16_000, 1), 16_000);
+    expect(peakOf(prepared)).toBeCloseTo(VAD_INPUT_PEAK, 5);
   });
 
-  it("reports no range for a flat clip", () => {
-    expect(dynamicRangeDb(constantAt(-52, 3000), SAMPLE_RATE)).toBeCloseTo(
-      0,
-      1,
-    );
+  it("lowers a loud clip to the VAD input peak", () => {
+    const prepared = prepareForVad(sine(0.95, 16_000, 1), 16_000);
+    expect(peakOf(prepared)).toBeCloseTo(VAD_INPUT_PEAK, 5);
   });
 
-  it("reports no range for digital silence", () => {
-    expect(dynamicRangeDb(new Float32Array(3000), SAMPLE_RATE)).toBe(0);
+  it("leaves the caller's samples unchanged", () => {
+    const samples = sine(0.005, 16_000, 1);
+    const original = Float32Array.from(samples);
+    prepareForVad(samples, 16_000);
+    expect(samples).toEqual(original);
   });
 
-  // A clip this short yields a single window, so there is no floor to measure
-  // a peak against. Reporting 0 leaves the decision to the absolute threshold
-  // rather than inventing a range from one sample point.
-  it("reports no range for a clip shorter than two windows", () => {
-    expect(dynamicRangeDb(constantAt(-20, 200), SAMPLE_RATE)).toBe(0);
+  it("leaves digital silence silent", () => {
+    const prepared = prepareForVad(new Float32Array(16_000), 16_000);
+    expect(prepared.every((sample) => sample === 0)).toBe(true);
   });
 
-  // A floor of exactly zero is a ratio with no answer. It means part of the
-  // device's output is dead, which is a fault rather than evidence of speech,
-  // so the range arm abstains and the absolute threshold decides alone.
-  it("abstains when the floor is digital silence", () => {
-    const samples = new Float32Array(3000);
-    samples.fill(10 ** (-70 / 20), 1200, 1800);
-
-    expect(dynamicRangeDb(samples, SAMPLE_RATE)).toBe(0);
-    expect(containsSpeech(samples, SAMPLE_RATE)).toBe(false);
+  it("accepts plain number arrays", () => {
+    const prepared = prepareForVad(Array.from(sine(0.01, 16_000, 1)), 16_000);
+    expect(peakOf(prepared)).toBeCloseTo(VAD_INPUT_PEAK, 5);
   });
 });
 
-describe("containsSpeech", () => {
-  // Loudness bounds measured over this user's stored recordings: real dictation
-  // never quieter than -31 dBFS, an accidental tap-and-release at -52 dBFS.
-  it("passes clips as quiet as real dictation gets", () => {
-    expect(containsSpeech(constantAt(-31, SAMPLE_RATE * 2), SAMPLE_RATE)).toBe(
-      true,
+describe("assessSpeech", () => {
+  const framesAt = (probability: number, count: number) =>
+    Array.from({ length: count }, () => probability);
+
+  it("finds speech when enough frames reach the speech probability", () => {
+    const probabilities = [
+      ...framesAt(0.01, 20),
+      ...framesAt(VAD_SPEECH_PROBABILITY, VAD_MIN_SPEECH_FRAMES),
+    ];
+    expect(assessSpeech(probabilities).containsSpeech).toBe(true);
+  });
+
+  it("finds no speech when one frame too few reach the speech probability", () => {
+    const probabilities = [
+      ...framesAt(0.01, 20),
+      ...framesAt(0.9, VAD_MIN_SPEECH_FRAMES - 1),
+    ];
+    expect(assessSpeech(probabilities).containsSpeech).toBe(false);
+  });
+
+  it("does not count frames just below the speech probability", () => {
+    const probabilities = framesAt(VAD_SPEECH_PROBABILITY - 0.01, 50);
+    expect(assessSpeech(probabilities).speechFrames).toBe(0);
+  });
+
+  it("counts speech frames that are not consecutive", () => {
+    const probabilities = [0.9, 0.01, 0.9, 0.01, 0.9];
+    expect(assessSpeech(probabilities)).toEqual({
+      speechFrames: 3,
+      maxProbability: 0.9,
+      containsSpeech: true,
+    });
+  });
+
+  it("finds no speech in a clip too short to yield any frame", () => {
+    expect(assessSpeech([])).toEqual({
+      speechFrames: 0,
+      maxProbability: 0,
+      containsSpeech: false,
+    });
+  });
+});
+
+describe("measureSpeech", () => {
+  it("runs the VAD on the prepared clip", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce([]);
+    const samples = sine(0.01, 48_000, 1);
+
+    await measureSpeech(samples, 48_000);
+
+    expect(invoke).toHaveBeenCalledWith("detect_speech_probabilities", {
+      samples: Array.from(prepareForVad(samples, 48_000)),
+    });
+  });
+
+  it("assesses the probabilities the VAD returns", async () => {
+    const probabilities = [0.01, 0.8, 0.9, 0.95, 0.02];
+    vi.mocked(invoke).mockResolvedValueOnce(probabilities);
+
+    await expect(measureSpeech(sine(0.01, 16_000, 1), 16_000)).resolves.toEqual(
+      assessSpeech(probabilities),
     );
   });
 
-  it("rejects a room-noise tap", () => {
-    expect(containsSpeech(constantAt(-52, SAMPLE_RATE * 2), SAMPLE_RATE)).toBe(
-      false,
+  it("rejects when the VAD fails", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce("VAD model missing");
+
+    await expect(measureSpeech(sine(0.01, 16_000, 1), 16_000)).rejects.toBe(
+      "VAD model missing",
     );
-  });
-
-  it("rejects digital silence of any length", () => {
-    expect(
-      containsSpeech(new Float32Array(SAMPLE_RATE * 23), SAMPLE_RATE),
-    ).toBe(false);
-  });
-
-  // The case the absolute threshold alone gets wrong: a microphone set too
-  // quiet puts real speech below -45 dBFS, and dictation disappears with no
-  // error. Its dynamic range gives it away as speech regardless of level.
-  it("passes speech recorded far below the absolute threshold", () => {
-    const clip = burstsOver(-70, -50);
-
-    expect(maxWindowLoudnessDbfs(clip, SAMPLE_RATE)).toBeLessThan(
-      SPEECH_THRESHOLD_DBFS,
-    );
-    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
-  });
-
-  // The case the range alone gets wrong, and the reason both arms are kept.
-  // Range measures variation, so a short utterance — uniformly loud, with no
-  // gaps to establish a floor — reads as flat. Measured on the real corpus:
-  // speech clips truncated to their first 600ms range between 0.2 and 18.1 dB.
-  it("passes a short loud utterance that has no floor to measure against", () => {
-    const clip = constantAt(-20, 200);
-
-    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
-    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
   });
 });
