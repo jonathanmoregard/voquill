@@ -7,6 +7,8 @@
 , pnpm_10
 , nodejs_22
 , pkg-config
+, cmake
+, git
 , makeWrapper
 , wrapGAppsHook3
 , cargo
@@ -124,10 +126,20 @@ stdenv.mkDerivation (finalAttrs: {
     cargo
     rustc
     pkg-config
+    # whisper-rs-sys (Silero VAD) builds whisper.cpp with cmake; ggml's
+    # CMakeLists requires git, and bindgen falls back to possibly stale bundled
+    # bindings without bindgenHook's include paths.
+    cmake
+    git
+    rustPlatform.bindgenHook
     makeWrapper
     wrapGAppsHook3
     jq
   ];
+
+  # cmake is only for whisper-rs-sys's build.rs; the repo root has no
+  # CMakeLists for the generic configure phase.
+  dontUseCmakeConfigure = true;
 
   buildInputs = dlopenLibs ++ [ glib-networking ];
 

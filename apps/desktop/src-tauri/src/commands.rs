@@ -1410,6 +1410,27 @@ pub async fn store_transcription_audio(
     result
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn detect_speech_probabilities(
+    app: AppHandle,
+    samples: Vec<f32>,
+) -> Result<Vec<f32>, String> {
+    let model_path = app
+        .path()
+        .resolve(
+            crate::system::vad::VAD_MODEL_RESOURCE,
+            tauri::path::BaseDirectory::Resource,
+        )
+        .map_err(|err| format!("Failed to resolve VAD model resource: {err}"))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::system::vad::speech_probabilities(&model_path, &samples)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
 #[derive(serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageUploadArgs {

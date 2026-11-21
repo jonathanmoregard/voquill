@@ -5,6 +5,7 @@ import {
   TranscriptionSession,
   TranscriptionSessionResult,
 } from "../types/transcription-session.types";
+import { resampleAudio } from "../utils/audio.utils";
 
 type ElevenLabsStreamingSession = {
   finalize: () => Promise<string>;
@@ -30,26 +31,6 @@ const getClosestSupportedSampleRate = (sampleRate: number): number => {
   }
 
   return closest;
-};
-
-const resampleAudio = (
-  input: Float32Array,
-  inputRate: number,
-  outputRate: number,
-): Float32Array => {
-  if (inputRate === outputRate) return input;
-  const ratio = inputRate / outputRate;
-  const outputLength = Math.ceil(input.length / ratio);
-  const output = new Float32Array(outputLength);
-  for (let i = 0; i < outputLength; i++) {
-    const srcIndex = i * ratio;
-    const srcFloor = Math.floor(srcIndex);
-    const frac = srcIndex - srcFloor;
-    const a = input[srcFloor] ?? 0;
-    const b = input[Math.min(srcFloor + 1, input.length - 1)] ?? 0;
-    output[i] = a + frac * (b - a);
-  }
-  return output;
 };
 
 const getElevenLabsToken = async (apiKey: string): Promise<string> => {

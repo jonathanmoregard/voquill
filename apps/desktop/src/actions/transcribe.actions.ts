@@ -23,9 +23,8 @@ import {
 import {
   hasNoSignal,
   measureSpeech,
-  SPEECH_RANGE_THRESHOLD_DB,
-  SPEECH_THRESHOLD_DBFS,
-  SPEECH_WINDOW_MS,
+  VAD_MIN_SPEECH_FRAMES,
+  VAD_SPEECH_PROBABILITY,
 } from "../utils/audio.utils";
 import { createId } from "../utils/id.utils";
 import {
@@ -160,9 +159,6 @@ export const transcribeAudio = async ({
   const metadata: TranscribeAudioMetadata = {};
   const warnings: string[] = [];
 
-  // Measured on the raw capture, before the repo applies normalization gain:
-  // amplifying a room-noise floor toward speech loudness is exactly what would
-  // make a silent clip look transcribable.
   if (hasNoSignal(samples)) {
     getLogger().warning(
       "Skipping transcription: capture device produced no signal (every sample zero)",
@@ -170,12 +166,18 @@ export const transcribeAudio = async ({
     return { rawTranscript: "", warnings: [], metadata };
   }
 
-  const speech = measureSpeech(samples, sampleRate);
-  if (!speech.containsSpeech) {
-    getLogger().info(
-      `Skipping transcription: no speech in clip (loudest ${SPEECH_WINDOW_MS}ms window ${speech.loudestWindowDbfs.toFixed(1)} dBFS, threshold ${SPEECH_THRESHOLD_DBFS} dBFS; dynamic range ${speech.rangeDb.toFixed(1)} dB, threshold ${SPEECH_RANGE_THRESHOLD_DB} dB)`,
+  try {
+    const speech = await measureSpeech(samples, sampleRate);
+    if (!speech.containsSpeech) {
+      getLogger().info(
+        `Skipping transcription: no speech in clip (${speech.speechFrames} frames at speech probability >= ${VAD_SPEECH_PROBABILITY}, need ${VAD_MIN_SPEECH_FRAMES}; max probability ${speech.maxProbability.toFixed(2)})`,
+      );
+      return { rawTranscript: "", warnings: [], metadata };
+    }
+  } catch (error) {
+    getLogger().warning(
+      `Speech detection failed, transcribing anyway: ${error}`,
     );
-    return { rawTranscript: "", warnings: [], metadata };
   }
 
   const {
