@@ -49,10 +49,12 @@ describe("DictationStrategy.onBeforeStop", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("focus_window_under_pointer");
   });
 
-  it("still lets the transcript be pasted when focusing fails", async () => {
+  it("logs a focus failure instead of aborting the stop", async () => {
     invokeMock.mockRejectedValue("window manager did not respond");
 
     await expect(holdAndRelease(["MiddleMouse"])).resolves.toBeUndefined();
-    expect(warningMock).toHaveBeenCalled();
+    expect(warningMock).toHaveBeenCalledWith(
+      "Failed to focus the window under the pointer: window manager did not respond",
+    );
   });
 });
