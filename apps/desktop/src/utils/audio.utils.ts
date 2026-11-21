@@ -77,9 +77,10 @@ export const SPEECH_THRESHOLD_DBFS = -45;
 /**
  * Dynamic range a clip must show to be considered speech, in dB.
  *
- * Measured over this user's recordings: whole clips span 19.5 to 39.3 dB, and
- * 0.8s excerpts around a single word no less than 16.6 dB. Room tone, with or
- * without key clicks in it, stays under 1 dB. The threshold sits in that gap.
+ * Measured over this user's recordings: whole clips span 16.4 to 25.3 dB, and
+ * 0.8s excerpts centred on the loudest window no less than 13.7 dB. Room tone,
+ * with or without key clicks in it, stays under 1 dB. The threshold sits in
+ * that gap.
  */
 export const SPEECH_RANGE_THRESHOLD_DB = 12;
 
@@ -97,7 +98,8 @@ export const RANGE_FRAME_MS = 20;
  *
  * Frames overlap by half, so a burst touches more frames than it fills. The
  * peak is the quietest of enough consecutive frames that a burst shorter than
- * this cannot touch them all.
+ * this cannot touch them all. Between this and twice this, how much of a
+ * burst's level counts depends on where it falls against the frame grid.
  */
 export const RANGE_SUSTAIN_MS = 50;
 
@@ -151,39 +153,40 @@ const peakDbfsOf = (rmsValues: number[]): number => {
 };
 
 /**
- * RMS of each RANGE_FRAME_MS frame, half-overlapping, over the clip's live
- * samples only. Exact zeros are a dead device, not the room's quiet: skipping
- * them keeps any frame from straddling a dead stretch and reading far quieter
- * than the room ever was.
+ * The clip without the exact zeros a device emits while it starts or stops
+ * capturing, which are neither room tone nor speech.
  */
-const liveFrameRmsValues = (
-  samples: AudioSamples,
-  sampleRate: number,
-): number[] => {
-  const hopSize = Math.max(1, Math.round((sampleRate * RANGE_FRAME_MS) / 2000));
-  const hopSumsOfSquares: number[] = [];
-  let sumOfSquares = 0;
-  let count = 0;
-  for (const sample of samples ?? []) {
-    if (sample === 0) {
-      continue;
-    }
-    sumOfSquares += sample * sample;
-    count += 1;
-    if (count === hopSize) {
-      hopSumsOfSquares.push(sumOfSquares);
-      sumOfSquares = 0;
-      count = 0;
-    }
+const trimDeadEdges = (samples: AudioSamples): number[] | Float32Array => {
+  const values = samples ?? [];
+  let start = 0;
+  while (start < values.length && values[start] === 0) {
+    start += 1;
   }
+  let end = values.length;
+  while (end > start && values[end - 1] === 0) {
+    end -= 1;
+  }
+  return values.slice(start, end);
+};
 
-  const rmsValues: number[] = [];
-  for (let index = 0; index + 1 < hopSumsOfSquares.length; index += 1) {
-    const frameSum =
-      (hopSumsOfSquares[index] ?? 0) + (hopSumsOfSquares[index + 1] ?? 0);
-    rmsValues.push(Math.sqrt(frameSum / (2 * hopSize)));
+/**
+ * Whether the clip holds a run of exact zeros at least `runLength` samples
+ * long. A working microphone's dither crosses zero for a sample or two (at
+ * most 0.1ms across the recorded clips); a run as long as a frame hop is the
+ * device dropping out.
+ */
+const hasDeadStretch = (
+  samples: number[] | Float32Array,
+  runLength: number,
+): boolean => {
+  let run = 0;
+  for (const sample of samples) {
+    run = sample === 0 ? run + 1 : 0;
+    if (run >= runLength) {
+      return true;
+    }
   }
-  return rmsValues;
+  return false;
 };
 
 /** The loudest level the frames hold for `span` consecutive hops. */
@@ -199,16 +202,35 @@ const sustainedPeakOf = (frameRmsValues: number[], span: number): number => {
   return loudest;
 };
 
-const rangeDbOf = (
+/**
+ * Spread between the loudest level the clip sustains for RANGE_SUSTAIN_MS and
+ * its own quiet baseline (the 10th-percentile RANGE_FRAME_MS frame), in dB.
+ *
+ * Speech is loud relative to the gaps between and around words; near-silence
+ * is flat however the gain is set. Scaling a clip moves peak and baseline
+ * together, so unlike SPEECH_THRESHOLD_DBFS this measure survives a microphone
+ * swap or an input-gain change.
+ *
+ * Measured on the clip's live span, between the dead edges a device emits as
+ * it starts or stops. Returns 0 — no evidence either way, leaving the decision
+ * to the absolute threshold — when that span is too short to hold two
+ * windows, when it is flat, or when the device dropped out inside it: a dead
+ * stretch is neither room tone nor speech, so no floor measured across it
+ * means anything.
+ */
+export const dynamicRangeDb = (
   samples: AudioSamples,
   sampleRate: number,
-  speechWindowCount: number,
 ): number => {
-  if (speechWindowCount < 2) {
+  const live = trimDeadEdges(samples);
+  const hopMs = RANGE_FRAME_MS / 2;
+  if (
+    windowRmsValues(live, sampleRate, SPEECH_WINDOW_MS).length < 2 ||
+    hasDeadStretch(live, Math.round((sampleRate * hopMs) / 1000))
+  ) {
     return 0;
   }
-  const frameRmsValues = liveFrameRmsValues(samples, sampleRate);
-  const hopMs = RANGE_FRAME_MS / 2;
+  const frameRmsValues = windowRmsValues(live, sampleRate, RANGE_FRAME_MS);
   const span = Math.round((RANGE_SUSTAIN_MS + RANGE_FRAME_MS) / hopMs) + 1;
   const loudest = sustainedPeakOf(frameRmsValues, span);
   const sorted = [...frameRmsValues].sort((left, right) => left - right);
@@ -226,30 +248,6 @@ export const maxWindowLoudnessDbfs = (
   sampleRate: number,
   windowMs: number = SPEECH_WINDOW_MS,
 ): number => peakDbfsOf(windowRmsValues(samples, sampleRate, windowMs));
-
-/**
- * Spread between the loudest level the clip sustains for RANGE_SUSTAIN_MS and
- * its own quiet baseline (the 10th-percentile RANGE_FRAME_MS frame), in dB.
- *
- * Speech is loud relative to the gaps between and around words; near-silence
- * is flat however the gain is set. Scaling a clip moves peak and baseline
- * together, so unlike SPEECH_THRESHOLD_DBFS this measure survives a microphone
- * swap or an input-gain change.
- *
- * Returns 0 — no evidence either way, leaving the decision to the absolute
- * threshold — when the clip is too short to hold two windows, or when its live
- * signal is flat. Exact zeros are a dead device rather than the room's quiet,
- * so they are left out of the measurement entirely.
- */
-export const dynamicRangeDb = (
-  samples: AudioSamples,
-  sampleRate: number,
-): number =>
-  rangeDbOf(
-    samples,
-    sampleRate,
-    windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS).length,
-  );
 
 /**
  * Whether the capture device produced no signal at all.
@@ -302,7 +300,7 @@ export const measureSpeech = (
 ): SpeechMeasurement => {
   const rmsValues = windowRmsValues(samples, sampleRate, SPEECH_WINDOW_MS);
   const loudestWindowDbfs = peakDbfsOf(rmsValues);
-  const rangeDb = rangeDbOf(samples, sampleRate, rmsValues.length);
+  const rangeDb = dynamicRangeDb(samples, sampleRate);
 
   return {
     loudestWindowDbfs,

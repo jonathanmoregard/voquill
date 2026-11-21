@@ -234,9 +234,8 @@ describe("dynamicRangeDb", () => {
     expect(dynamicRangeDb(new Float32Array(3000), SAMPLE_RATE)).toBe(0);
   });
 
-  // A clip this short is a tap, not a dictation: its frames would show a range
-  // between the key click and room tone, so the range arm abstains and the
-  // absolute threshold decides alone.
+  // A clip this short is a tap, not a dictation, so the range arm abstains and
+  // the absolute threshold decides alone, even over a burst 20 dB up.
   it("reports no range for a clip shorter than two windows", () => {
     const tooShort = constantAt(-70, 449);
     tooShort.fill(10 ** (-50 / 20), 150, 400);
@@ -260,8 +259,9 @@ describe("dynamicRangeDb", () => {
   });
 
   // Exact zeros mean part of the device's output is dead, which is a fault
-  // rather than evidence of speech. They are left out, so a clip whose only
-  // live part is flat has no range and the absolute threshold decides alone.
+  // rather than evidence of speech. The dead edges are left out, so a clip
+  // whose only live part is flat has no range and the absolute threshold
+  // decides alone.
   it("ignores digital silence around a flat live stretch", () => {
     const samples = new Float32Array(3000);
     samples.fill(10 ** (-70 / 20), 1200, 1800);
@@ -295,6 +295,35 @@ describe("dynamicRangeDb", () => {
 
     expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(20, 1);
     expect(containsSpeech(clip, SAMPLE_RATE)).toBe(true);
+  });
+
+  it("counts only the live span towards the two-window minimum", () => {
+    const clip = constantAt(-70, 1000);
+    clip.fill(0, 0, 600);
+    clip.fill(10 ** (-50 / 20), 700, 950);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(false);
+  });
+
+  // A dropout mid-clip would otherwise join the sounds either side of it, so
+  // two key clicks read as one burst long enough to count as a peak.
+  it("abstains when the device drops out mid-clip", () => {
+    const clip = constantAt(-60, 1000);
+    clip.fill(10 ** (-38 / 20), 205, 235);
+    clip.fill(0, 235, 600);
+    clip.fill(10 ** (-38 / 20), 600, 630);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBe(0);
+    expect(containsSpeech(clip, SAMPLE_RATE)).toBe(false);
+  });
+
+  it("ignores exact zeros shorter than a frame hop", () => {
+    const clip = constantAt(-70, 800);
+    clip.fill(10 ** (-50 / 20), 200, 650);
+    clip.fill(0, 400, 409);
+
+    expect(dynamicRangeDb(clip, SAMPLE_RATE)).toBeCloseTo(20, 1);
   });
 });
 
@@ -333,9 +362,9 @@ describe("containsSpeech", () => {
 
   // A single quiet word: every 300ms window overlaps it, so a floor measured
   // over those windows sits within a few dB of the word and the clip read as
-  // flat. Measured on the real corpus: 0.8s excerpts around the loudest word
-  // of quiet-mic clips ranged 3.7 to 17 dB that way, 15 to 29 dB against the
-  // pauses resolved at RANGE_FRAME_MS.
+  // flat. On the real corpus, 0.8s excerpts around the loudest word of
+  // quiet-mic clips ranged as low as 3.7 dB that way, and no lower than
+  // 13.7 dB against the pauses resolved at RANGE_FRAME_MS.
   it("passes a short quiet word whose only floor is the pause around it", () => {
     const clip = constantAt(-70, 800);
     clip.fill(10 ** (-50 / 20), 200, 650);
