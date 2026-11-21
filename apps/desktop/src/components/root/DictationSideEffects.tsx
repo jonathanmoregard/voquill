@@ -293,7 +293,6 @@ export const DictationSideEffects = () => {
     getLogger().info("Stopping recording");
     clearRecordingTimers();
     restoreSystemVolume();
-    await strategyRef.current?.onBeforeStop();
 
     const [audio, a11yInfo, appTarget] = await getLogger().stopwatch(
       "stopRecording",

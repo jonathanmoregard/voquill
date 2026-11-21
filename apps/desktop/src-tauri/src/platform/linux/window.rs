@@ -3,13 +3,6 @@ use gtk::prelude::*;
 use std::sync::mpsc;
 use tauri::WebviewWindow;
 
-pub fn focus_window_under_pointer() -> Result<bool, String> {
-    if super::detect::is_wayland() {
-        return Ok(false);
-    }
-    super::x11::window::focus_window_under_pointer()
-}
-
 pub fn surface_main_window(window: &WebviewWindow) -> Result<(), String> {
     let window_for_handle = window.clone();
     let (tx, rx) = mpsc::channel();

@@ -11,7 +11,6 @@ export abstract class BaseStrategy {
 
   abstract validateAvailability(): Nullable<StrategyValidationError>;
   abstract onBeforeStart(): Promise<void>;
-  async onBeforeStop(): Promise<void> {}
   abstract setPhase(phase: OverlayPhase): Promise<void>;
   abstract handleTranscript(
     params: HandleTranscriptParams,

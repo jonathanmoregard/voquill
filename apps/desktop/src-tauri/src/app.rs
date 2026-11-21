@@ -244,7 +244,6 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::commands::storage_upload_data,
             crate::commands::storage_get_download_url,
             crate::commands::surface_main_window,
-            crate::commands::focus_window_under_pointer,
             crate::commands::set_pill_window_size,
             crate::commands::paste,
             crate::commands::copy_to_clipboard,
