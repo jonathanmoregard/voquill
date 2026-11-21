@@ -3,14 +3,23 @@ use whisper_rs::{WhisperVadContext, WhisperVadContextParams};
 
 pub const VAD_MODEL_RESOURCE: &str = "resources/ggml-silero-v6.2.0.bin";
 
+/// Measured on 300 s of audio: 4 threads run twice as fast as 1, more gain nothing.
+const MAX_THREADS: usize = 4;
+
 /// Per-frame speech probabilities from Silero VAD, one per 32 ms frame.
 /// `samples` must be 16 kHz mono.
 pub fn speech_probabilities(model_path: &Path, samples: &[f32]) -> Result<Vec<f32>, String> {
+    // whisper.cpp leaves its probability buffer unallocated for zero chunks,
+    // and whisper-rs builds a slice from that null pointer.
+    if samples.is_empty() {
+        return Ok(Vec::new());
+    }
     let model_path = model_path
         .to_str()
         .ok_or_else(|| format!("VAD model path is not UTF-8: {}", model_path.display()))?;
     let mut params = WhisperVadContextParams::new();
-    params.set_n_threads(1);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(MAX_THREADS));
+    params.set_n_threads(threads as i32);
     let mut context = WhisperVadContext::new(model_path, params)
         .map_err(|err| format!("Failed to load VAD model {model_path}: {err}"))?;
     context
@@ -64,6 +73,13 @@ mod tests {
 
         assert!(!probabilities.is_empty());
         assert_eq!(speech_frames(&probabilities), 0);
+    }
+
+    #[test]
+    fn empty_input_has_no_frames() {
+        let probabilities = speech_probabilities(&model_path(), &[]).unwrap();
+
+        assert!(probabilities.is_empty());
     }
 
     #[test]
