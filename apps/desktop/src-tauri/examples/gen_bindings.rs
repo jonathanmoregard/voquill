@@ -32,6 +32,7 @@ fn main() {
         start_recording,
         stop_recording,
         store_transcription_audio,
+        detect_speech_probabilities,
         storage_upload_data,
         storage_get_download_url,
         surface_main_window,

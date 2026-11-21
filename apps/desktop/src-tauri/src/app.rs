@@ -241,6 +241,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::commands::set_pill_pitch_blend,
             crate::commands::calibrate_pitch,
             crate::commands::store_transcription_audio,
+            crate::commands::detect_speech_probabilities,
             crate::commands::storage_upload_data,
             crate::commands::storage_get_download_url,
             crate::commands::surface_main_window,

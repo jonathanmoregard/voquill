@@ -10,3 +10,4 @@
 # CI-downloaded resources (VC++ Redistributable, etc.)
 /resources/*
 !/resources/trigger-hotkey.sh
+!/resources/ggml-silero-v6.2.0.bin
