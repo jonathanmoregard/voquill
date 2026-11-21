@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ActivationController,
   hasNewlyActiveController,
@@ -7,20 +7,20 @@ import {
 
 const noop = () => undefined;
 
-describe("hold-only activation", () => {
-  const track = () => {
-    const calls = { activate: 0, deactivate: 0 };
-    const controller = new ActivationController(
-      () => {
-        calls.activate += 1;
-      },
-      () => {
-        calls.deactivate += 1;
-      },
-    );
-    return { controller, calls };
-  };
+const track = () => {
+  const calls = { activate: 0, deactivate: 0 };
+  const controller = new ActivationController(
+    () => {
+      calls.activate += 1;
+    },
+    () => {
+      calls.deactivate += 1;
+    },
+  );
+  return { controller, calls };
+};
 
+describe("hold-only activation", () => {
   it("stops on release even when the press was far shorter than a tap", () => {
     const { controller, calls } = track();
 
@@ -52,6 +52,50 @@ describe("hold-only activation", () => {
 
     controller.handleRelease();
     expect(controller.isActive).toBe(false);
+  });
+});
+
+describe("hold delay", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("ignores a click released before the delay", () => {
+    const { controller, calls } = track();
+
+    controller.handlePress(220);
+    vi.advanceTimersByTime(219);
+    controller.handleRelease();
+    vi.advanceTimersByTime(1000);
+
+    expect(controller.isActive).toBe(false);
+    expect(calls).toEqual({ activate: 0, deactivate: 0 });
+  });
+
+  it("activates once the press outlasts the delay, and stops on release", () => {
+    const { controller, calls } = track();
+
+    controller.handlePress(220);
+    vi.advanceTimersByTime(220);
+    expect(controller.isActive).toBe(true);
+
+    controller.handleRelease();
+    expect(controller.isActive).toBe(false);
+    expect(calls).toEqual({ activate: 1, deactivate: 1 });
+  });
+
+  it("drops a pending activation on reset", () => {
+    const { controller, calls } = track();
+
+    controller.handlePress(220);
+    controller.forceReset();
+    vi.advanceTimersByTime(1000);
+
+    expect(calls.activate).toBe(0);
   });
 });
 

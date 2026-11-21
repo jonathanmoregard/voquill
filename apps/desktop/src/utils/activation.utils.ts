@@ -3,6 +3,7 @@ export class ActivationController {
   private _isLocked = false;
   private ignoreNextActivation = false;
   private deactivateTimer: NodeJS.Timeout | null = null;
+  private activateTimer: NodeJS.Timeout | null = null;
   private lastReleaseTimestamp: number | null = null;
   private toggleInProgress = false;
   private onActivateRef: (() => void) | null = null;
@@ -41,6 +42,13 @@ export class ActivationController {
     }
   }
 
+  private clearPendingActivation(): void {
+    if (this.activateTimer) {
+      clearTimeout(this.activateTimer);
+      this.activateTimer = null;
+    }
+  }
+
   private doActivate(): void {
     if (this._isActive) return;
 
@@ -52,6 +60,7 @@ export class ActivationController {
   private doDeactivate(): void {
     const wasActive = this._isActive;
 
+    this.clearPendingActivation();
     this.clearPendingDeactivation();
     this._isActive = false;
     this._isLocked = false;
@@ -62,19 +71,31 @@ export class ActivationController {
     }
   }
 
-  handlePress(): void {
+  handlePress(holdDelayMs = 0): void {
     if (this.ignoreNextActivation) {
       return;
     }
 
     this.clearPendingDeactivation();
 
-    if (!this._isActive) {
-      this.doActivate();
+    if (this._isActive) {
+      return;
     }
+
+    if (holdDelayMs > 0) {
+      this.clearPendingActivation();
+      this.activateTimer = setTimeout(() => {
+        this.activateTimer = null;
+        this.doActivate();
+      }, holdDelayMs);
+      return;
+    }
+
+    this.doActivate();
   }
 
   handleRelease(): void {
+    this.clearPendingActivation();
     this.ignoreNextActivation = false;
     this.lastReleaseTimestamp = Date.now();
 
@@ -94,6 +115,7 @@ export class ActivationController {
       return;
     }
     this.toggleInProgress = true;
+    this.clearPendingActivation();
     try {
       if (this._isActive) {
         this.doDeactivate();
@@ -118,6 +140,7 @@ export class ActivationController {
     this._isActive = false;
     this._isLocked = false;
     this.ignoreNextActivation = false;
+    this.clearPendingActivation();
     this.clearPendingDeactivation();
   }
 
@@ -126,6 +149,7 @@ export class ActivationController {
   }
 
   dispose(): void {
+    this.clearPendingActivation();
     this.clearPendingDeactivation();
   }
 }

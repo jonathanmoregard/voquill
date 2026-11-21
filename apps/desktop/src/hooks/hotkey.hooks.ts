@@ -5,7 +5,12 @@ import {
   comboStillHeld,
   getHotkeyCombosForAction,
   matchesComboExactly,
+  MIDDLE_MOUSE_KEY,
 } from "../utils/keyboard.utils";
+
+// A middle click keeps its normal meaning (paste, open in new tab); only a
+// hold dictates.
+const MIDDLE_MOUSE_HOLD_DELAY_MS = 220;
 
 type HoldAction = { actionName: string; controller: ActivationController };
 
@@ -56,11 +61,12 @@ export const useHotkeyHoldMany = (args: {
       // Activation requires the combo to be held exactly, but an active hold
       // only ends when a combo key is released — stray events from other
       // devices (e.g. headset media keys) must not cancel the hold.
-      const isPressed = availableCombos.some((combo) =>
+      const pressedCombo = availableCombos.find((combo) =>
         wasPressed
           ? comboStillHeld(keysHeld, combo)
           : matchesComboExactly(keysHeld, combo),
       );
+      const isPressed = pressedCombo !== undefined;
 
       if (isDisabled) {
         wasPressedRef.current.set(action.actionName, isPressed);
@@ -88,7 +94,11 @@ export const useHotkeyHoldMany = (args: {
           continue;
         }
 
-        action.controller.handlePress();
+        action.controller.handlePress(
+          pressedCombo.includes(MIDDLE_MOUSE_KEY)
+            ? MIDDLE_MOUSE_HOLD_DELAY_MS
+            : 0,
+        );
       } else if (!isPressed && wasPressed) {
         action.controller.clearIgnore();
         action.controller.handleRelease();

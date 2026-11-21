@@ -15,6 +15,7 @@ export const CANCEL_TRANSCRIPTION_HOTKEY = "cancel-transcription";
 export const OPEN_CHAT_HOTKEY = "open-chat";
 export const ADD_TO_DICTIONARY_HOTKEY = "add-to-dictionary";
 export const ADDITIONAL_LANGUAGE_HOTKEY_PREFIX = "additional-language:";
+export const MIDDLE_MOUSE_KEY = "MiddleMouse";
 
 type CompositorBinding = {
   actionName: string;
@@ -128,6 +129,7 @@ export const getPrettyKeyName = (key: string): string => {
     return "Fn";
   }
 
+  if (key === MIDDLE_MOUSE_KEY) return "Middle mouse";
   if (key === "LeftArrow") return "←";
   if (key === "RightArrow") return "→";
   if (key === "UpArrow") return "↑";

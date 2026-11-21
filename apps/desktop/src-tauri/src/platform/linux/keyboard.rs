@@ -12,8 +12,9 @@ pub fn run_listener_process() -> Result<(), String> {
 /// reset (e.g. a new dictation hold that started while the previous stop
 /// pipeline was finishing) isn't lost until re-press.
 ///
-/// Labels are derived from the same rdev keycode table the listener uses, so
-/// they match the labels the pressed-keys set is built from.
+/// Key labels are derived from the same rdev keycode table the listener uses,
+/// and a held middle button from the pointer's button mask, so they match the
+/// labels the pressed-keys set is built from.
 ///
 /// Returns `None` when the state can't be queried (Wayland, no X display).
 pub fn query_physically_held_keys() -> Option<Vec<String>> {
@@ -30,7 +31,27 @@ pub fn query_physically_held_keys() -> Option<Vec<String>> {
 
         let mut keymap = [0i8; 32];
         x11::xlib::XQueryKeymap(display, keymap.as_mut_ptr());
+
+        let (mut root, mut child) = (0, 0);
+        let (mut root_x, mut root_y, mut win_x, mut win_y) = (0, 0, 0, 0);
+        let mut button_mask = 0u32;
+        x11::xlib::XQueryPointer(
+            display,
+            x11::xlib::XDefaultRootWindow(display),
+            &mut root,
+            &mut child,
+            &mut root_x,
+            &mut root_y,
+            &mut win_x,
+            &mut win_y,
+            &mut button_mask,
+        );
         x11::xlib::XCloseDisplay(display);
+
+        // The button mask is filled in even when the pointer is on another screen.
+        if button_mask & x11::xlib::Button2Mask != 0 {
+            labels.push(crate::platform::keyboard::MIDDLE_MOUSE_LABEL.to_string());
+        }
 
         for keycode in 8u32..256 {
             let byte = keymap[(keycode / 8) as usize] as u8;

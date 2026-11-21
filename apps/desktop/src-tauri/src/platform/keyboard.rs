@@ -1,4 +1,6 @@
 use crate::domain::{KeysHeldPayload, EVT_KEYS_HELD};
+#[cfg(target_os = "linux")]
+use rdev::Button;
 use rdev::{Event, EventType, Key as RdevKey};
 use std::collections::HashSet;
 use std::env;
@@ -8,11 +10,10 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, EventTarget};
 
 use serde::{Deserialize, Serialize};
-use strum::IntoEnumIterator;
 
 #[cfg(target_os = "linux")]
 pub use super::linux::keyboard::run_listener_process;
@@ -45,35 +46,27 @@ impl KeyEventEmitter {
         }
     }
 
-    fn handle_event(&self, event: &Event) {
+    fn handle_payload(&self, payload: &KeyboardEventPayload) {
         if debug_keys_enabled() {
-            log::debug!("event: {:?}", event.event_type);
+            log::debug!("event: {:?} {}", payload.kind, payload.key_label);
         }
 
-        // Never log individual keys here: this listener sees every key typed
-        // system-wide, so a per-key log line is a keylogger.
-        match event.event_type {
-            EventType::KeyPress(key) => {
-                self.update_pressed_keys(key, true);
-            }
-            EventType::KeyRelease(key) => {
-                self.update_pressed_keys(key, false);
-            }
-            _ => {}
-        }
+        // Never log individual keys outside debug mode: this listener sees
+        // every key typed system-wide, so a per-key log line is a keylogger.
+        let is_pressed = matches!(payload.kind, WireEventKind::Press);
+        self.update_pressed_keys(&payload.key_label, is_pressed);
     }
 
-    fn update_pressed_keys(&self, key: RdevKey, is_pressed: bool) {
-        let key_label = key_to_label(key);
+    fn update_pressed_keys(&self, key_label: &str, is_pressed: bool) {
         let mut guard = self
             .pressed_keys
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let changed = if is_pressed {
-            guard.insert(key_label.clone())
+            guard.insert(key_label.to_string())
         } else {
-            guard.remove(&key_label)
+            guard.remove(key_label)
         };
 
         if changed {
@@ -85,7 +78,7 @@ impl KeyEventEmitter {
     }
 
     fn reset(&self) {
-        // Re-query the real keyboard state where the platform allows it
+        // Re-query the real keyboard and pointer state where the platform allows it
         // instead of assuming nothing is held: a reset can race a fresh hold
         // (the stop pipeline hard-resets seconds after release), and wiping a
         // physically held key makes it unrecoverable until re-press.
@@ -155,7 +148,8 @@ pub fn sync_combos(combos: Vec<Vec<String>>) {
     }
 }
 
-/// Whether the global key listener currently sees any physically pressed keys.
+/// Whether the global key listener currently sees any physically held key or
+/// middle mouse button.
 /// Used to avoid synthesizing modifier releases while the user is mid-hold.
 pub fn any_keys_currently_pressed() -> bool {
     let state = listener_state()
@@ -445,9 +439,7 @@ fn pump_stream(stream: TcpStream, emitter: Arc<KeyEventEmitter>) -> Result<(), S
                     continue;
                 }
 
-                if let Some(event) = event_from_payload(payload) {
-                    emitter.handle_event(&event);
-                }
+                emitter.handle_payload(&payload);
             }
             Err(err) => log::warn!("Malformed keyboard event payload: {err}: {line}"),
         }
@@ -456,50 +448,34 @@ fn pump_stream(stream: TcpStream, emitter: Arc<KeyEventEmitter>) -> Result<(), S
     Ok(())
 }
 
-fn event_from_payload(payload: KeyboardEventPayload) -> Option<Event> {
-    let key = key_from_payload(&payload.key_label, payload.raw_code)?;
+/// Label the middle mouse button travels under in the held-keys set, so it can
+/// be bound to a hotkey like any key. Linux only: the macOS and Windows grab
+/// path sees the keyboard alone, so a binding there could never fire.
+#[cfg(target_os = "linux")]
+pub(crate) const MIDDLE_MOUSE_LABEL: &str = "MiddleMouse";
 
-    let event_type = match payload.kind {
-        WireEventKind::Press => EventType::KeyPress(key),
-        WireEventKind::Release => EventType::KeyRelease(key),
-    };
-
-    Some(Event {
-        time: SystemTime::now(),
-        unicode: None,
-        event_type,
-        platform_code: 0,
-        position_code: 0,
-        usb_hid: 0,
-        #[cfg(target_os = "windows")]
-        extra_data: 0,
-        #[cfg(target_os = "macos")]
-        extra_data: 0,
-    })
-}
-
-fn key_from_payload(label: &str, raw_code: Option<u32>) -> Option<RdevKey> {
-    if let Some(code) = raw_code.or_else(|| parse_unknown_label(label)) {
-        return Some(RdevKey::Unknown(code));
-    }
-
-    for key in RdevKey::iter() {
-        match key {
-            RdevKey::Unknown(_) | RdevKey::RawKey(_) => continue,
-            _ => {
-                if format!("{key:?}") == label {
-                    return Some(key);
-                }
-            }
+fn payload_for_event(event: &Event, scan_code: u32) -> Option<KeyboardEventPayload> {
+    let (kind, key_label, raw_code) = match event.event_type {
+        EventType::KeyPress(key) => (WireEventKind::Press, key_to_label(key), key_raw_code(key)),
+        EventType::KeyRelease(key) => {
+            (WireEventKind::Release, key_to_label(key), key_raw_code(key))
         }
-    }
-
-    None
-}
-
-fn parse_unknown_label(label: &str) -> Option<u32> {
-    let trimmed = label.strip_prefix("Unknown(")?.strip_suffix(')')?;
-    trimmed.parse().ok()
+        #[cfg(target_os = "linux")]
+        EventType::ButtonPress(Button::Middle) => {
+            (WireEventKind::Press, MIDDLE_MOUSE_LABEL.to_string(), None)
+        }
+        #[cfg(target_os = "linux")]
+        EventType::ButtonRelease(Button::Middle) => {
+            (WireEventKind::Release, MIDDLE_MOUSE_LABEL.to_string(), None)
+        }
+        _ => return None,
+    };
+    Some(KeyboardEventPayload {
+        kind,
+        key_label,
+        raw_code,
+        scan_code,
+    })
 }
 
 pub(crate) fn key_to_label(key: RdevKey) -> String {
@@ -720,23 +696,7 @@ pub(crate) fn run_listen_loop(
     scan_code_fn: fn(&Event) -> u32,
 ) -> Result<(), String> {
     rdev::listen(move |event| {
-        let payload = match event.event_type {
-            EventType::KeyPress(key) => Some(KeyboardEventPayload {
-                kind: WireEventKind::Press,
-                key_label: key_to_label(key),
-                raw_code: key_raw_code(key),
-                scan_code: scan_code_fn(&event),
-            }),
-            EventType::KeyRelease(key) => Some(KeyboardEventPayload {
-                kind: WireEventKind::Release,
-                key_label: key_to_label(key),
-                raw_code: key_raw_code(key),
-                scan_code: scan_code_fn(&event),
-            }),
-            _ => None,
-        };
-
-        if let Some(payload) = payload {
+        if let Some(payload) = payload_for_event(&event, scan_code_fn(&event)) {
             send_event_to_tcp(&writer, &payload);
         }
     })
@@ -876,5 +836,84 @@ mod tests {
             update_grab_hotkey_state(&mut state, "Function", false, &combos),
             GrabDecision::PassThrough
         );
+    }
+}
+
+#[cfg(test)]
+mod payload_tests {
+    use super::{payload_for_event, WireEventKind};
+    use rdev::{Button, Event, EventType, Key};
+    use std::time::SystemTime;
+
+    fn event(event_type: EventType) -> Event {
+        Event {
+            time: SystemTime::now(),
+            unicode: None,
+            event_type,
+            platform_code: 0,
+            position_code: 0,
+            usb_hid: 0,
+            #[cfg(target_os = "windows")]
+            extra_data: 0,
+            #[cfg(target_os = "macos")]
+            extra_data: 0,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn middle_mouse_travels_as_press_and_release() {
+        use super::MIDDLE_MOUSE_LABEL;
+
+        let press = payload_for_event(&event(EventType::ButtonPress(Button::Middle)), 7).unwrap();
+        assert!(matches!(press.kind, WireEventKind::Press));
+        assert_eq!(press.key_label, MIDDLE_MOUSE_LABEL);
+        assert_eq!(press.scan_code, 7);
+
+        let release =
+            payload_for_event(&event(EventType::ButtonRelease(Button::Middle)), 7).unwrap();
+        assert!(matches!(release.kind, WireEventKind::Release));
+        assert_eq!(release.key_label, MIDDLE_MOUSE_LABEL);
+        assert_eq!(release.scan_code, 7);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn middle_mouse_is_not_forwarded_off_linux() {
+        for event_type in [
+            EventType::ButtonPress(Button::Middle),
+            EventType::ButtonRelease(Button::Middle),
+        ] {
+            assert!(payload_for_event(&event(event_type), 0).is_none());
+        }
+    }
+
+    #[test]
+    fn other_pointer_events_are_not_forwarded() {
+        for event_type in [
+            EventType::ButtonPress(Button::Left),
+            EventType::ButtonRelease(Button::Right),
+            EventType::ButtonPress(Button::Unknown(8)),
+            EventType::MouseMove { x: 1.0, y: 2.0 },
+            EventType::Wheel {
+                delta_x: 0,
+                delta_y: 1,
+            },
+        ] {
+            assert!(payload_for_event(&event(event_type), 0).is_none());
+        }
+    }
+
+    #[test]
+    fn keys_keep_their_labels() {
+        let payload = payload_for_event(&event(EventType::KeyPress(Key::ControlRight)), 0).unwrap();
+        assert_eq!(payload.key_label, "ControlRight");
+        assert_eq!(payload.raw_code, None);
+
+        let unknown =
+            payload_for_event(&event(EventType::KeyRelease(Key::Unknown(248))), 0).unwrap();
+        assert!(matches!(unknown.kind, WireEventKind::Release));
+        assert_eq!(unknown.key_label, "Unknown(248)");
+        assert_eq!(unknown.raw_code, Some(248));
     }
 }
